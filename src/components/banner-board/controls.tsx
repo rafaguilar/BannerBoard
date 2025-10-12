@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from "react";
@@ -286,7 +287,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     if (!files || files.length === 0) return;
     const file = files[0];
     
-    if (file.type !== "application/zip") {
+    if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
       toast({
         variant: "destructive",
         title: "Invalid File Type",
@@ -298,17 +299,21 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     const { round, version, width, height } = form.getValues();
 
     try {
+      console.log("Starting zip file processing...");
       const zip = await JSZip.loadAsync(file);
       const htmlFile = zip.file(/(\.html|\.htm)$/i)[0];
       if (!htmlFile) {
         throw new Error("No HTML file found in the zip archive.");
       }
+      console.log("HTML file found:", htmlFile.name);
+
 
       const filePromises: Promise<{ path: string, dataUrl: string }>[] = [];
       zip.forEach((relativePath, zipEntry) => {
         if (!zipEntry.dir) {
           const promise = zipEntry.async("base64").then(content => {
             const mimeType = getMimeType(zipEntry.name);
+            console.log(`Processing file: ${zipEntry.name}, MIME type: ${mimeType}`);
             return { path: zipEntry.name, dataUrl: `data:${mimeType};base64,${content}` };
           });
           filePromises.push(promise);
@@ -319,14 +324,23 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       const fileMap = new Map(allFiles.map(f => [f.path, f.dataUrl]));
       
       let htmlContent = await htmlFile.async("string");
+      console.log("Original HTML content length:", htmlContent.length);
 
       // Replace relative paths with data URLs
       fileMap.forEach((dataUrl, path) => {
-        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/)(?!data:)(./)?${escapeRegExp(path)}["']`, "g");
+        // More robust regex to handle different path styles (e.g. ./, /)
+        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(path)}["']`, "g");
+        const originalHtmlContent = htmlContent;
         htmlContent = htmlContent.replace(regex, `$1="${dataUrl}"`);
+        if (originalHtmlContent !== htmlContent) {
+          console.log(`Replaced path for: ${path}`);
+        }
       });
+      
+      console.log("Final HTML content length:", htmlContent.length);
 
       const finalHtmlDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`;
+      console.log("Generated data URL for banner.");
       
       onAddBanners([{
         url: finalHtmlDataUrl,
@@ -335,6 +349,10 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         round,
         version,
       }]);
+      toast({
+        title: "HTML5 Banner Added",
+        description: `Banner ${file.name} was successfully processed.`,
+      });
 
     } catch (error) {
       console.error("Error processing zip file:", error);
@@ -363,6 +381,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
   }
   
   const escapeRegExp = (string: string) => {
+    // Escape characters with special meaning in regular expressions
     return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
@@ -639,3 +658,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
