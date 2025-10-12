@@ -63,9 +63,11 @@ export function BannerCard({
     transition,
     zIndex: isDragging ? 10 : undefined,
   };
+  
+  const isDataUrl = banner.url.startsWith('data:');
 
   const handleReload = () => {
-    if (iframeRef.current) {
+    if (iframeRef.current && !isDataUrl) {
       setIsLoading(true);
       setIsError(false);
       iframeRef.current.src = "about:blank";
@@ -87,6 +89,7 @@ export function BannerCard({
             const iframe = doc.querySelector('iframe');
             if (iframe) {
               try {
+                 if (isDataUrl) return;
                 const iframeContent = iframe.contentDocument?.body.innerHTML;
                 if(iframeContent) {
                     const newDiv = doc.createElement('div');
@@ -119,6 +122,11 @@ export function BannerCard({
   };
 
   useEffect(() => {
+    if (isDataUrl) {
+      setIsLoading(false);
+      setIsError(false);
+      return;
+    }
     const iframe = iframeRef.current;
     if (!iframe) return;
 
@@ -142,7 +150,7 @@ export function BannerCard({
       iframe.removeEventListener("load", handleLoad);
       iframe.removeEventListener("error", handleError);
     };
-  }, [banner.url, isLoading]);
+  }, [banner.url, isLoading, isDataUrl]);
 
   return (
     <div
@@ -156,6 +164,7 @@ export function BannerCard({
     >
       <div
         ref={cardRef}
+        data-banner-card-inner
         className="overflow-hidden rounded-md bg-muted"
         style={{ width: banner.width, height: banner.height }}
       >
@@ -205,7 +214,7 @@ export function BannerCard({
       <div className="absolute right-2 top-2 z-20 flex flex-col gap-2 opacity-0 transition-opacity group-hover/card:opacity-100">
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleReload}>
+            <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleReload} disabled={isDataUrl}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>

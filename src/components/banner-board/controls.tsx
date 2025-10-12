@@ -32,6 +32,7 @@ import {
   Download,
   Loader,
   X,
+  FileUp,
 } from "lucide-react";
 import type { Banner, Preset } from "@/lib/types";
 import {
@@ -137,6 +138,122 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         <Button type="submit" className="w-full">
           <Plus className="mr-2 h-4 w-4" /> Add Banners
         </Button>
+      </form>
+    </Form>
+  );
+}
+
+// --- Local Upload Panel ---
+const localUploadSchema = z.object({
+  round: z.coerce.number().min(0, "Round must be non-negative."),
+  version: z.coerce.number().min(0, "Version must be non-negative."),
+});
+
+function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
+  const { toast } = useToast();
+  const form = useForm<z.infer<typeof localUploadSchema>>({
+    resolver: zodResolver(localUploadSchema),
+    defaultValues: {
+      round: 1,
+      version: 1,
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const { round, version } = form.getValues();
+    const bannerPromises: Promise<Omit<Banner, "id">>[] = [];
+
+    Array.from(files).forEach(file => {
+      if (file.type.startsWith("image/")) {
+        const promise = new Promise<Omit<Banner, "id">>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const dataUrl = e.target?.result as string;
+            const img = new Image();
+            img.onload = () => {
+              resolve({
+                url: dataUrl,
+                width: img.width,
+                height: img.height,
+                round,
+                version,
+              });
+            };
+            img.onerror = reject;
+            img.src = dataUrl;
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        bannerPromises.push(promise);
+      }
+    });
+
+    Promise.all(bannerPromises)
+      .then(newBanners => {
+        if (newBanners.length > 0) {
+          onAddBanners(newBanners);
+        } else {
+          toast({
+            variant: "destructive",
+            title: "No Images Found",
+            description: "No valid image files were selected.",
+          });
+        }
+      })
+      .catch(error => {
+        console.error("Error processing local files:", error);
+        toast({
+          variant: "destructive",
+          title: "File Processing Error",
+          description: "There was an error reading the files.",
+        });
+      });
+      
+    // Reset file input
+    e.target.value = '';
+  };
+
+  return (
+    <Form {...form}>
+      <form className="space-y-4 p-4">
+        <div className="grid grid-cols-2 gap-4">
+          <FormField control={form.control} name="round" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Round</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="version" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Version</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+        </div>
+        <div>
+          <FormLabel htmlFor="file-upload">Banner Files</FormLabel>
+          <div className="mt-2">
+            <label htmlFor="file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+              <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
+                <div className="text-center">
+                  <FileUp className="mx-auto h-12 w-12 text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">Click to upload or drag and drop</p>
+                  <p className="text-xs text-muted-foreground">PNG, JPG, GIF, etc.</p>
+                </div>
+              </div>
+              <input id="file-upload" name="file-upload" type="file" className="sr-only" multiple accept="image/*" onChange={handleFileChange} />
+            </label>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Select files to add them as banners. The banner dimensions will be detected automatically.
+        </p>
       </form>
     </Form>
   );
@@ -328,14 +445,18 @@ interface MainControlsProps {
 export function MainControls(props: MainControlsProps) {
   return (
     <Tabs defaultValue="add" className="flex h-full flex-col">
-      <TabsList className="grid w-full grid-cols-3">
+      <TabsList className="grid w-full grid-cols-4">
         <TabsTrigger value="add"><Plus className="h-4 w-4" /></TabsTrigger>
+        <TabsTrigger value="upload"><Upload className="h-4 w-4" /></TabsTrigger>
         <TabsTrigger value="ai"><BrainCircuit className="h-4 w-4" /></TabsTrigger>
         <TabsTrigger value="presets"><List className="h-4 w-4" /></TabsTrigger>
       </TabsList>
       <ScrollArea className="flex-1">
         <TabsContent value="add">
           <BannerInputPanel onAddBanners={props.onAddBanners} />
+        </TabsContent>
+         <TabsContent value="upload">
+          <LocalUploadPanel onAddBanners={props.onAddBanners} />
         </TabsContent>
         <TabsContent value="ai">
           <AIPanel banners={props.banners} selectedBanners={props.selectedBanners} />
