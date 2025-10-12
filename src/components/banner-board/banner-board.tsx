@@ -1,0 +1,200 @@
+"use client";
+
+import React, { useState, useEffect, useCallback } from "react";
+import { v4 as uuidv4 } from "uuid";
+import {
+  DndContext,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+} from "@dnd-kit/sortable";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarInset,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
+import { useToast } from "@/hooks/use-toast";
+import type { Banner, Preset } from "@/lib/types";
+import {
+  loadWorkspaceFromStorage,
+  saveWorkspaceToStorage,
+  loadPresetsFromStorage,
+  savePresetsToStorage,
+} from "@/lib/workspace";
+import { BannerGrid } from "./banner-grid";
+import { AppHeader } from "./header";
+import { MainControls } from "./controls";
+
+export function BannerBoard() {
+  const [banners, setBanners] = useState<Banner[]>([]);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [selectedBannerIds, setSelectedBannerIds] = useState<Set<string>>(
+    new Set()
+  );
+  const [isClient, setIsClient] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    setIsClient(true);
+    const savedBanners = loadWorkspaceFromStorage();
+    if (savedBanners) {
+      setBanners(savedBanners);
+    }
+    setPresets(loadPresetsFromStorage());
+  }, []);
+
+  useEffect(() => {
+    if (isClient) {
+      saveWorkspaceToStorage(banners);
+    }
+  }, [banners, isClient]);
+
+  useEffect(() => {
+    if (isClient) {
+      savePresetsToStorage(presets);
+    }
+  }, [presets, isClient]);
+
+  const handleAddBanners = useCallback(
+    (newBanners: Omit<Banner, "id">[]) => {
+      const bannersToAdd = newBanners.map((b) => ({ ...b, id: uuidv4() }));
+      setBanners((prev) => [...prev, ...bannersToAdd]);
+      toast({
+        title: "Banners Added",
+        description: `${bannersToAdd.length} new banners have been added to the workspace.`,
+      });
+    },
+    [toast]
+  );
+
+  const handleUpdateBanner = useCallback((updatedBanner: Banner) => {
+    setBanners((prev) =>
+      prev.map((b) => (b.id === updatedBanner.id ? updatedBanner : b))
+    );
+  }, []);
+
+  const handleRemoveBanner = useCallback((bannerId: string) => {
+    setBanners((prev) => prev.filter((b) => b.id !== bannerId));
+    setSelectedBannerIds((prev) => {
+      const newSet = new Set(prev);
+      newSet.delete(bannerId);
+      return newSet;
+    });
+  }, []);
+
+  const handleClearBanners = useCallback(() => {
+    setBanners([]);
+    setSelectedBannerIds(new Set());
+    toast({
+      title: "Workspace Cleared",
+      description: "All banners have been removed.",
+    });
+  }, [toast]);
+
+  const handleToggleSelection = useCallback((bannerId: string) => {
+    setSelectedBannerIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(bannerId)) {
+        newSet.delete(bannerId);
+      } else {
+        newSet.add(bannerId);
+      }
+      return newSet;
+    });
+  }, []);
+  
+  const handleSelectAll = useCallback(() => {
+    setSelectedBannerIds(new Set(banners.map(b => b.id)));
+  }, [banners]);
+
+  const handleDeselectAll = useCallback(() => {
+    setSelectedBannerIds(new Set());
+  }, []);
+
+  const handleSavePreset = useCallback((name: string) => {
+    if (!name.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Invalid Name",
+        description: "Preset name cannot be empty.",
+      });
+      return;
+    }
+    const newPreset: Preset = { id: uuidv4(), name, banners: [...banners] };
+    setPresets((prev) => [...prev, newPreset]);
+    toast({
+      title: "Preset Saved",
+      description: `Preset "${name}" has been saved.`,
+    });
+  }, [banners, toast]);
+
+  const handleLoadPreset = useCallback((presetId: string) => {
+    const preset = presets.find((p) => p.id === presetId);
+    if (preset) {
+      setBanners(preset.banners);
+      toast({
+        title: "Preset Loaded",
+        description: `Preset "${preset.name}" has been loaded.`,
+      });
+    }
+  }, [presets, toast]);
+
+  const handleDeletePreset = useCallback((presetId: string) => {
+    setPresets((prev) => prev.filter((p) => p.id !== presetId));
+    toast({
+      title: "Preset Deleted",
+    });
+  }, [toast]);
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      setBanners((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id);
+        const newIndex = items.findIndex((item) => item.id === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
+  const selectedBanners = banners.filter(b => selectedBannerIds.has(b.id));
+
+  return (
+    <SidebarProvider>
+      <Sidebar side="left" collapsible="icon" className="z-20">
+        <SidebarContent>
+          <MainControls
+            onAddBanners={handleAddBanners}
+            onClearBanners={handleClearBanners}
+            presets={presets}
+            onSavePreset={handleSavePreset}
+            onLoadPreset={handleLoadPreset}
+            onDeletePreset={handleDeletePreset}
+            banners={banners}
+            selectedBanners={selectedBanners}
+          />
+        </SidebarContent>
+      </Sidebar>
+      <SidebarInset>
+        <AppHeader />
+        <DndContext
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
+          <BannerGrid
+            banners={banners}
+            selectedBannerIds={selectedBannerIds}
+            onToggleSelection={handleToggleSelection}
+            onRemoveBanner={handleRemoveBanner}
+            onUpdateBanner={handleUpdateBanner}
+            onSelectAll={handleSelectAll}
+            onDeselectAll={handleDeselectAll}
+          />
+        </DndContext>
+      </SidebarInset>
+    </SidebarProvider>
+  );
+}
