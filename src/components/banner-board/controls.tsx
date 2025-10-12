@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import JSZip from "jszip";
 import {
   Tabs,
   TabsContent,
@@ -33,6 +34,7 @@ import {
   Loader,
   X,
   FileUp,
+  FileArchive,
 } from "lucide-react";
 import type { Banner, Preset } from "@/lib/types";
 import {
@@ -259,6 +261,166 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
   );
 }
 
+// --- HTML5 Upload Panel ---
+const html5UploadSchema = z.object({
+  width: z.coerce.number().min(1, "Width must be at least 1."),
+  height: z.coerce.number().min(1, "Height must be at least 1."),
+  round: z.coerce.number().min(0, "Round must be non-negative."),
+  version: z.coerce.number().min(0, "Version must be non-negative."),
+});
+
+function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
+  const { toast } = useToast();
+  const form = useForm<z.infer<typeof html5UploadSchema>>({
+    resolver: zodResolver(html5UploadSchema),
+    defaultValues: {
+      width: 300,
+      height: 250,
+      round: 1,
+      version: 1,
+    },
+  });
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    
+    if (file.type !== "application/zip") {
+      toast({
+        variant: "destructive",
+        title: "Invalid File Type",
+        description: "Please upload a .zip file.",
+      });
+      return;
+    }
+
+    const { round, version, width, height } = form.getValues();
+
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const htmlFile = zip.file(/(\.html|\.htm)$/i)[0];
+      if (!htmlFile) {
+        throw new Error("No HTML file found in the zip archive.");
+      }
+
+      const filePromises: Promise<{ path: string, dataUrl: string }>[] = [];
+      zip.forEach((relativePath, zipEntry) => {
+        if (!zipEntry.dir) {
+          const promise = zipEntry.async("base64").then(content => {
+            const mimeType = getMimeType(zipEntry.name);
+            return { path: zipEntry.name, dataUrl: `data:${mimeType};base64,${content}` };
+          });
+          filePromises.push(promise);
+        }
+      });
+      
+      const allFiles = await Promise.all(filePromises);
+      const fileMap = new Map(allFiles.map(f => [f.path, f.dataUrl]));
+      
+      let htmlContent = await htmlFile.async("string");
+
+      // Replace relative paths with data URLs
+      fileMap.forEach((dataUrl, path) => {
+        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/)(?!data:)(./)?${escapeRegExp(path)}["']`, "g");
+        htmlContent = htmlContent.replace(regex, `$1="${dataUrl}"`);
+      });
+
+      const finalHtmlDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`;
+      
+      onAddBanners([{
+        url: finalHtmlDataUrl,
+        width,
+        height,
+        round,
+        version,
+      }]);
+
+    } catch (error) {
+      console.error("Error processing zip file:", error);
+      toast({
+        variant: "destructive",
+        title: "Zip Processing Error",
+        description: (error as Error).message || "Could not read the zip file.",
+      });
+    }
+
+    e.target.value = '';
+  };
+  
+  const getMimeType = (filename: string) => {
+    const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html', '.htm': 'text/html',
+      '.css': 'text/css', '.js': 'application/javascript',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.svg': 'image/svg+xml',
+      '.woff': 'font/woff', '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
+      '.otf': 'font/otf'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
+  
+  const escapeRegExp = (string: string) => {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  return (
+    <Form {...form}>
+      <form className="space-y-4 p-4">
+        <div className="grid grid-cols-2 gap-4">
+          <FormField control={form.control} name="width" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Width</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="height" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Height</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="round" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Round</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+          <FormField control={form.control} name="version" render={({ field }) => (
+            <FormItem>
+              <FormLabel>Version</FormLabel>
+              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormMessage />
+            </FormItem>
+          )} />
+        </div>
+        <div>
+          <FormLabel htmlFor="html5-file-upload">HTML5 Zip File</FormLabel>
+          <div className="mt-2">
+            <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+              <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
+                <div className="text-center">
+                  <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
+                  <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
+                </div>
+              </div>
+              <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} />
+            </label>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Upload a zip file containing an HTML5 banner (with an index.html).
+        </p>
+      </form>
+    </Form>
+  );
+}
+
 // --- AI Anomaly Panel ---
 
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
@@ -445,9 +607,10 @@ interface MainControlsProps {
 export function MainControls(props: MainControlsProps) {
   return (
     <Tabs defaultValue="add" className="flex h-full flex-col">
-      <TabsList className="grid w-full grid-cols-4">
+      <TabsList className="grid w-full grid-cols-5">
         <TabsTrigger value="add"><Plus className="h-4 w-4" /></TabsTrigger>
         <TabsTrigger value="upload"><Upload className="h-4 w-4" /></TabsTrigger>
+        <TabsTrigger value="html5"><FileArchive className="h-4 w-4" /></TabsTrigger>
         <TabsTrigger value="ai"><BrainCircuit className="h-4 w-4" /></TabsTrigger>
         <TabsTrigger value="presets"><List className="h-4 w-4" /></TabsTrigger>
       </TabsList>
@@ -457,6 +620,9 @@ export function MainControls(props: MainControlsProps) {
         </TabsContent>
          <TabsContent value="upload">
           <LocalUploadPanel onAddBanners={props.onAddBanners} />
+        </TabsContent>
+        <TabsContent value="html5">
+          <HTML5UploadPanel onAddBanners={props.onAddBanners} />
         </TabsContent>
         <TabsContent value="ai">
           <AIPanel banners={props.banners} selectedBanners={props.selectedBanners} />
