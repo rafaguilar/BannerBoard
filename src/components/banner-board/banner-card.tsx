@@ -49,6 +49,7 @@ export function BannerCard({
   const [isError, setIsError] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
+  const [iframeKey, setIframeKey] = useState(banner.id);
 
   const {
     attributes,
@@ -68,21 +69,10 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
 
   const handleReload = () => {
-    if (iframeRef.current) {
-      console.log(`Reloading banner: ${banner.id} (${isDataUrl ? 'data URL' : 'remote URL'})`);
-      setIsLoading(true);
-      setIsError(false);
-      
-      const iframe = iframeRef.current;
-      const currentSrc = iframe.src;
-      // Force reload
-      iframe.src = 'about:blank';
-      setTimeout(() => {
-        if (iframe) {
-          iframe.src = currentSrc;
-        }
-      }, 50);
-    }
+    // Changing the key is the most reliable way to force a full remount and reload of the iframe
+    setIframeKey(oldKey => oldKey + '-reload');
+    setIsLoading(true);
+    setIsError(false);
   };
 
   const handleScreenshot = async () => {
@@ -114,18 +104,7 @@ export function BannerCard({
     const iframe = iframeRef.current;
     if (!iframe) return;
 
-    const isDataUrl = banner.url.startsWith('data:');
-    
-    // For data URLs, we assume they load quickly and don't need a timeout.
-    if (isDataUrl) {
-      setIsLoading(false);
-      setIsError(false);
-    } else {
-      setIsLoading(true);
-    }
-
     const handleLoad = () => {
-      console.log(`Banner ${banner.id} finished loading.`);
       setIsLoading(false);
       setIsError(false);
     };
@@ -136,28 +115,36 @@ export function BannerCard({
       setIsError(true);
     };
 
-    let timeoutId: NodeJS.Timeout | null = null;
-    if (!isDataUrl) {
-        timeoutId = setTimeout(() => {
-            if (isLoading) {
-                console.warn(`Banner ${banner.id} timed out.`);
-                handleError(new Event('timeout'));
-            }
-        }, 10000); // 10s timeout for remote URLs
-    }
-
+    setIsLoading(true);
     iframe.addEventListener("load", handleLoad);
     iframe.addEventListener("error", handleError);
 
+    // For non-data URLs, we add a timeout. Data URLs should load instantly.
+    let timeoutId: NodeJS.Timeout | null = null;
+    if (!isDataUrl) {
+      timeoutId = setTimeout(() => {
+        if (isLoading) {
+          handleError(new Event('timeout'));
+        }
+      }, 10000); // 10s timeout
+    } else {
+        // if it's a data url and it hasn't loaded in a short time, something is wrong
+        // but it's likely not a network issue. We still clear loading state.
+        setTimeout(() => {
+           if(isLoading){
+             handleLoad();
+           }
+        }, 200)
+    }
+
     return () => {
-      console.log(`Cleaning up listeners for banner: ${banner.id}`);
       if (timeoutId) clearTimeout(timeoutId);
       if (iframe) {
         iframe.removeEventListener("load", handleLoad);
         iframe.removeEventListener("error", handleError);
       }
     };
-  }, [banner.id, banner.url, isLoading]);
+  }, [iframeKey, banner.id, banner.url, isDataUrl]);
 
 
   return (
@@ -179,7 +166,7 @@ export function BannerCard({
       >
         <div className="absolute inset-0 z-10 flex cursor-move items-center justify-center bg-transparent" {...attributes} {...listeners} />
 
-        {isLoading && !isDataUrl && (
+        {isLoading && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-card/80 text-card-foreground">
             <Loader className="h-8 w-8 animate-spin" />
             <p className="text-sm">Loading Banner...</p>
@@ -197,7 +184,7 @@ export function BannerCard({
           </div>
         )}
         <iframe
-          key={banner.id}
+          key={iframeKey}
           ref={iframeRef}
           src={banner.url}
           width={banner.width}
@@ -205,7 +192,7 @@ export function BannerCard({
           scrolling="no"
           className={cn(
             "pointer-events-none border-0 transition-opacity",
-            (isLoading || isError) && !isDataUrl && "opacity-0"
+            (isLoading || isError) && "opacity-0"
           )}
           title={`Banner ${banner.width}x${banner.height}`}
         />
