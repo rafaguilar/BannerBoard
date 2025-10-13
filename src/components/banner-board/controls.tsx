@@ -326,37 +326,38 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             
             const simpleName = zipEntry.name.split('/').pop()!;
             const mime = getMimeType(simpleName);
-            const isText = mime.startsWith('text/') || mime === 'application/javascript' || mime === 'image/svg+xml';
+            const isText = mime.startsWith('text/') || mime === 'application/javascript' || mime.endsWith('svg+xml');
 
             if (isText) {
                 const content = await zipEntry.async("string");
                 textFileContents.set(simpleName, content);
+                if (mime.endsWith('svg+xml')) {
+                     assetDataUrlMap.set(simpleName, `data:image/svg+xml;base64,${btoa(content)}`);
+                }
+            } else {
+                const base64Content = await zipEntry.async("base64");
+                assetDataUrlMap.set(simpleName, `data:${mime};base64,${base64Content}`);
             }
-            const base64Content = await zipEntry.async("base64");
-            assetDataUrlMap.set(simpleName, `data:${mime};base64,${base64Content}`);
         }
         
         let processedCss = textFileContents.get('style.css') || '';
         for(const [fileName, dataUrl] of assetDataUrlMap.entries()) {
-            const regex = new RegExp(`url\\s*\\(\\s*['"]?(${fileName})['"]?\\s*\\)`, 'g');
-            processedCss = processedCss.replace(regex, `url(${dataUrl})`);
+            const regex = new RegExp(fileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+            processedCss = processedCss.replace(regex, dataUrl);
         }
 
         let mainJsContent = textFileContents.get('main.js') || '';
         const loadCSSRegex = /function\s+loadCSS\s*\(\s*\)\s*\{[^}]+\}/;
-        const loadCSSMatch = mainJsContent.match(loadCSSRegex);
-        let nextFunctionName = 'initAnimations'; // A sensible default
-
-        if (loadCSSMatch) {
-            const loadCSSBody = loadCSSMatch[0];
-            // Look for the function called on 'load' event.
-            const addEventListenerMatch = loadCSSBody.match(/\.addEventListener\(\s*['"]load['"]\s*,\s*([a-zA-Z0-9_]+)\s*,\s*false\s*\)/);
-            if (addEventListenerMatch && addEventListenerMatch[1]) {
-                nextFunctionName = addEventListenerMatch[1];
-            }
-             mainJsContent = mainJsContent.replace(loadCSSRegex, `function loadCSS() { ${nextFunctionName}(); }`);
+        const addEventListenerMatch = mainJsContent.match(/\.addEventListener\(\s*['"]load['"]\s*,\s*([a-zA-Z0-9_]+)\s*,\s*false\s*\)/);
+        let nextFunctionName = '';
+        if (addEventListenerMatch && addEventListenerMatch[1]) {
+            nextFunctionName = addEventListenerMatch[1];
         }
 
+
+        let finalHtmlContent = textFileContents.get(htmlFile.name.split('/').pop()!)!;
+        finalHtmlContent = finalHtmlContent.replace('</head>', `<style>${processedCss}</style></head>`);
+        finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, '');
 
         const assetMapScript = `<script>
             window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetDataUrlMap.entries()))};
@@ -369,11 +370,12 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 }
             });
         </script>`;
+        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script>${assetMapScript}${mainJsContent}</script>`);
 
-        let finalHtmlContent = textFileContents.get(htmlFile.name.split('/').pop()!)!;
-        finalHtmlContent = finalHtmlContent.replace('</head>', `<style>${processedCss}</style>${assetMapScript}</head>`);
-        finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, '');
-        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script>${mainJsContent}</script>`);
+        if(nextFunctionName) {
+            finalHtmlContent += `<script>${nextFunctionName}();</script>`
+        }
+        
 
         onAddBanners([{
             url: finalHtmlContent,
@@ -663,3 +665,4 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
