@@ -326,23 +326,55 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
             
             const simpleFileName = zipEntry.name.split('/').pop()!;
-            const isText = /\.(css|js|svg|html|htm|json|xml)$/i.test(simpleFileName);
-            const content = await zipEntry.async(isText ? "string" : "base64");
             const mime = getMimeType(simpleFileName);
-            
+            const isText = /\.(css|js|svg|html|htm|json|xml)$/i.test(simpleFileName);
+
             if (isText) {
-                contentMap.set(simpleFileName, content as string);
+                const content = await zipEntry.async("string");
+                contentMap.set(simpleFileName, content);
+                if (mime === 'image/svg+xml') {
+                    assetMap.set(simpleFileName, `data:${mime};charset=utf-8,${encodeURIComponent(content)}`);
+                } else {
+                    assetMap.set(simpleFileName, `data:${mime};base64,${btoa(unescape(encodeURIComponent(content)))}`);
+                }
+            } else {
+                 const base64Content = await zipEntry.async("base64");
+                 assetMap.set(simpleFileName, `data:${mime};base64,${base64Content}`);
             }
-            assetMap.set(simpleFileName, `data:${mime};${isText && mime !== 'image/svg+xml' ? 'charset=utf-8,' : 'base64,'}${isText && mime !== 'image/svg+xml' ? encodeURIComponent(content as string) : content}`);
         }
         
         let finalHtmlContent = contentMap.get(htmlFile.name.split('/').pop()!)!;
 
-        // Statically inject CSS
+        const monkeyPatch = `
+              window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap))};
+              const originalSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
+              if (originalSrcDescriptor) {
+                  Object.defineProperty(Image.prototype, 'src', {
+                    set: function(value) {
+                      const assetName = value.split('/').pop();
+                      if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                        originalSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
+                      } else {
+                        originalSrcDescriptor.set.call(this, value);
+                      }
+                    }
+                  });
+              }
+        `;
+
+        const jsFile = Array.from(contentMap.keys()).find(k => k.endsWith('.js'));
+        if (jsFile) {
+            const originalJsContent = contentMap.get(jsFile)!;
+            const finalJsContent = monkeyPatch + originalJsContent;
+            const jsDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(finalJsContent)}`;
+            finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
+        } else {
+            finalHtmlContent = finalHtmlContent.replace('</head>', `<script>${monkeyPatch}</script></head>`);
+        }
+
         const cssFile = Array.from(contentMap.keys()).find(k => k.endsWith('.css'));
         if (cssFile) {
             let cssContent = contentMap.get(cssFile)!;
-            // Replace paths inside css
             for (const [assetName, dataUrl] of assetMap.entries()) {
                 if (assetName === cssFile) continue;
                 const regex = new RegExp(`(url\\s*\\(\\s*['"]?)(${assetName})(['"]?\\s*\\))`, 'g');
@@ -352,31 +384,13 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, styleTag);
         }
 
-        // Prepare JS
-        const jsFile = Array.from(contentMap.keys()).find(k => k.endsWith('.js'));
-        if (jsFile) {
-            const assetMapString = JSON.stringify(Object.fromEntries(assetMap));
-            
-            const monkeyPatch = `
-              window.ASSET_MAP = ${assetMapString};
-              const originalSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
-              Object.defineProperty(Image.prototype, 'src', {
-                set: function(value) {
-                  const assetName = value.split('/').pop();
-                  if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                    originalSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
-                  } else {
-                    originalSrcDescriptor.set.call(this, value);
-                  }
-                }
-              });
-            `;
-            
-            const originalJsContent = contentMap.get(jsFile)!;
-            const finalJsContent = monkeyPatch + originalJsContent;
-            const jsDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(finalJsContent)}`;
-            finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
-        }
+        finalHtmlContent = finalHtmlContent.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/g, (match, src) => {
+            const assetName = src.split('/').pop()!;
+            if (assetMap.has(assetName)) {
+                return match.replace(src, assetMap.get(assetName)!);
+            }
+            return match;
+        });
 
         onAddBanners([{
             url: finalHtmlContent,
