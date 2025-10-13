@@ -329,11 +329,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       
       const rootPath = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
 
-      const assets = new Map<string, { type: 'text' | 'binary', content: string | Uint8Array, mime: string }>();
-      const textBasedAssets = new Map<string, string>();
-      const dataUrls = new Map<string, string>();
+      const assetDataUrls = new Map<string, string>();
+      const filePromises: Promise<void>[] = [];
 
-      const filePromises = [];
       zip.forEach((relativePath, zipEntry) => {
           if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('.DS_Store')) {
               console.log(`Skipping directory or meta file: ${zipEntry.name}`);
@@ -341,63 +339,31 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           }
 
           const isText = zipEntry.name.match(/\.(html?|css|js|svg|xml|json)$/i);
-          const outputType = isText ? "string" : "uint8array";
-          
-          const promise = zipEntry.async(outputType).then(content => {
-            console.log(`Processing file: ${zipEntry.name}, MIME type: ${getMimeType(zipEntry.name)}`);
-            const assetInfo = {
-                content: content as any,
-                mime: getMimeType(zipEntry.name),
-            };
-            if (isText) {
-              textBasedAssets.set(zipEntry.name, content as string);
-            } else {
-              let base64 = '';
-              const bytes = content as Uint8Array;
-              for (let i = 0; i < bytes.byteLength; i++) {
-                  base64 += String.fromCharCode(bytes[i]);
-              }
-              dataUrls.set(zipEntry.name, `data:${assetInfo.mime};base64,${btoa(base64)}`);
-            }
+          const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
+              const mime = getMimeType(zipEntry.name);
+              const dataUrl = isText
+                  ? `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`
+                  : `data:${mime};base64,${content}`;
+              assetDataUrls.set(zipEntry.name, dataUrl);
           });
           filePromises.push(promise);
       });
 
       await Promise.all(filePromises);
 
-      // Multi-pass substitution for text assets
-      for (const [path, content] of textBasedAssets.entries()) {
-        let newContent = content;
-        for (const [assetPath, dataUrl] of dataUrls.entries()) {
-            const searchPath = assetPath.replace(rootPath, '');
-            const regex = new RegExp(`(["'\\(])(${escapeRegExp(searchPath)})(["'\\)])`, 'g');
-             if (regex.test(newContent)) {
-                 newContent = newContent.replace(regex, `$1${dataUrl}$3`);
-             }
-        }
-        textBasedAssets.set(path, newContent);
-      }
-      
-      // Convert the processed text assets to data URLs
-      for (const [path, content] of textBasedAssets.entries()) {
-          const mime = getMimeType(path);
-          dataUrls.set(path, `data:${mime};charset=utf-8,${encodeURIComponent(content)}`);
-      }
-      
-      let finalHtmlContent = textBasedAssets.get(htmlFile.name);
-      if (!finalHtmlContent) {
-          throw new Error("Could not retrieve HTML content after processing.");
-      }
+      let finalHtmlContent = await htmlFile.async("string");
+      console.log("Original HTML content length:", finalHtmlContent.length);
 
-      // Final pass on the HTML file itself
-      for (const [assetPath, dataUrl] of dataUrls.entries()) {
-          const searchPath = assetPath.replace(rootPath, '');
+      for (const [path, dataUrl] of assetDataUrls.entries()) {
+          const searchPath = path.replace(rootPath, '');
+          // This regex looks for src="...", href="..." or url(...) and replaces the path.
           const regex = new RegExp(`(["'\\(])(${escapeRegExp(searchPath)})(["'\\)])`, 'g');
-          if (regex.test(finalHtmlContent)) {
-              finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
+          if (finalHtmlContent.includes(searchPath)) {
+            finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
           }
       }
-
+      
+      console.log("Final HTML content length:", finalHtmlContent.length);
       console.log("Generated final HTML for srcdoc.");
       
       onAddBanners([{
@@ -697,3 +663,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
