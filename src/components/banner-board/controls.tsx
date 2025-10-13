@@ -284,16 +284,16 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     },
   });
 
-  const getMimeType = (filename: string) => {
+  const getMimeType = (filename: string): string => {
     const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
     const mimeTypes: Record<string, string> = {
-      '.html': 'text/html', '.htm': 'text/html',
-      '.css': 'text/css', '.js': 'application/javascript',
-      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.svg': 'image/svg+xml',
-      '.woff': 'font/woff', '.woff2': 'font/woff2',
-      '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
-      '.otf': 'font/otf'
+        '.html': 'text/html', '.htm': 'text/html',
+        '.css': 'text/css', '.js': 'application/javascript',
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.svg': 'image/svg+xml',
+        '.woff': 'font/woff', '.woff2': 'font/woff2',
+        '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
+        '.otf': 'font/otf'
     };
     return mimeTypes[ext] || 'application/octet-stream';
   }
@@ -304,110 +304,90 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     const file = files[0];
     
     if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
-      toast({
-        variant: "destructive",
-        title: "Invalid File Type",
-        description: "Please upload a .zip file.",
-      });
+      toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .zip file." });
       return;
     }
 
     const { round, version, width, height } = form.getValues();
 
     try {
-      const zip = await JSZip.loadAsync(file);
-      const htmlFile = zip.file(/(\/)?(index|ad)\.html?$/i)[0];
+        const zip = await JSZip.loadAsync(file);
+        const htmlFile = zip.file(/(\/)?(index|ad)\.html?$/i)[0];
 
-      if (!htmlFile) {
-        throw new Error("No index.html or ad.html file found in the zip archive.");
-      }
-
-      // Step 1: Create a map of all assets to their data URLs
-      const assetMap = new Map<string, string>();
-      const fileReadPromises: Promise<any>[] = [];
-
-      zip.forEach((relativePath, zipEntry) => {
-        if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
-
-        const simpleFileName = zipEntry.name.split('/').pop()!;
-        const isText = zipEntry.name.match(/\.(css|js|svg|html|htm|json|xml)$/i);
-        const outputType = isText ? "string" : "base64";
-
-        const promise = zipEntry.async(outputType).then(content => {
-          const mime = getMimeType(zipEntry.name);
-          let dataUrl;
-          if (isText) {
-            // For text files, we might not need to encode them if they are being embedded directly
-             if (mime === 'image/svg+xml') {
-              dataUrl = `data:image/svg+xml;base64,${btoa(content as string)}`;
-             } else {
-               assetMap.set(simpleFileName, content);
-               return;
-             }
-          } else {
-            dataUrl = `data:${mime};base64,${content}`;
-          }
-          assetMap.set(simpleFileName, dataUrl);
-        });
-        fileReadPromises.push(promise);
-      });
-
-      await Promise.all(fileReadPromises);
-
-      // Step 2: Process text files (CSS, JS) to replace internal asset paths
-      for (const [fileName, content] of assetMap.entries()) {
-        if (fileName.endsWith('.css') || fileName.endsWith('.js')) {
-          let processedContent = content;
-          for (const [assetName, dataUrl] of assetMap.entries()) {
-            if (fileName === assetName) continue; // Don't replace a file with itself
-             const regex = new RegExp(`(["'\\(])(./)?${assetName}(["'\\)])`, "g");
-             processedContent = processedContent.replace(regex, `$1${dataUrl}$3`);
-          }
-          assetMap.set(fileName, processedContent);
+        if (!htmlFile) {
+            throw new Error("No index.html or ad.html file found in the zip archive.");
         }
-      }
 
-      // Step 3: Build the final HTML
-      let finalHtmlContent = await htmlFile.async("string");
+        const assetMap = new Map<string, string>();
+        const contentMap = new Map<string, string>();
 
-      // Inject styles directly
-      const styleContent = assetMap.get('style.css') || '';
-      const styleElement = `<style>${styleContent}</style>`;
-      finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']style\.css["'][^>]*>/, styleElement);
+        for (const relativePath in zip.files) {
+            const zipEntry = zip.files[relativePath];
+            if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
+            
+            const simpleFileName = zipEntry.name.split('/').pop()!;
+            const isText = /\.(css|js|svg|html|htm|json|xml)$/i.test(simpleFileName);
+            const content = await zipEntry.async(isText ? "string" : "base64");
+            const mime = getMimeType(simpleFileName);
+            
+            if (isText) {
+                contentMap.set(simpleFileName, content as string);
+            }
+            assetMap.set(simpleFileName, `data:${mime};${isText && mime !== 'image/svg+xml' ? 'charset=utf-8,' : 'base64,'}${isText && mime !== 'image/svg+xml' ? encodeURIComponent(content as string) : content}`);
+        }
+        
+        let finalHtmlContent = contentMap.get(htmlFile.name.split('/').pop()!)!;
 
-      // Replace script tag with inline script
-      const scriptContent = assetMap.get('main.js') || '';
-      const scriptDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(scriptContent)}`;
-      finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']main\.js["'][^>]*><\/script>/, `<script src="${scriptDataUrl}"></script>`);
+        // Statically inject CSS
+        const cssFile = Array.from(contentMap.keys()).find(k => k.endsWith('.css'));
+        if (cssFile) {
+            let cssContent = contentMap.get(cssFile)!;
+            // Replace paths inside css
+            for (const [assetName, dataUrl] of assetMap.entries()) {
+                if (assetName === cssFile) continue;
+                const regex = new RegExp(`(url\\s*\\(\\s*['"]?)(${assetName})(['"]?\\s*\\))`, 'g');
+                cssContent = cssContent.replace(regex, `$1${dataUrl}$3`);
+            }
+            const styleTag = `<style>${cssContent}</style>`;
+            finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, styleTag);
+        }
 
-      // Replace all other asset paths
-      for (const [fileName, dataUrl] of assetMap.entries()) {
-          if(fileName.endsWith('.js') || fileName.endsWith('.css')) continue;
-          const regex = new RegExp(`(["'])(./)?${fileName}(["'])`, "g");
-          finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
-      }
+        // Prepare JS
+        const jsFile = Array.from(contentMap.keys()).find(k => k.endsWith('.js'));
+        if (jsFile) {
+            const assetMapString = JSON.stringify(Object.fromEntries(assetMap));
+            
+            const monkeyPatch = `
+              window.ASSET_MAP = ${assetMapString};
+              const originalSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
+              Object.defineProperty(Image.prototype, 'src', {
+                set: function(value) {
+                  const assetName = value.split('/').pop();
+                  if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                    originalSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
+                  } else {
+                    originalSrcDescriptor.set.call(this, value);
+                  }
+                }
+              });
+            `;
+            
+            const originalJsContent = contentMap.get(jsFile)!;
+            const finalJsContent = monkeyPatch + originalJsContent;
+            const jsDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(finalJsContent)}`;
+            finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
+        }
 
+        onAddBanners([{
+            url: finalHtmlContent,
+            width, height, round, version,
+        }]);
 
-      onAddBanners([{
-        url: finalHtmlContent,
-        width,
-        height,
-        round,
-        version,
-      }]);
-
-      toast({
-        title: "HTML5 Banner Added",
-        description: `Banner ${file.name} was successfully processed.`,
-      });
+        toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} was successfully processed.` });
 
     } catch (error) {
-      console.error("Error processing zip file:", error);
-      toast({
-        variant: "destructive",
-        title: "Zip Processing Error",
-        description: (error as Error).message || "Could not read the zip file.",
-      });
+        console.error("Error processing zip file:", error);
+        toast({ variant: "destructive", title: "Zip Processing Error", description: (error as Error).message || "Could not read the zip file." });
     }
 
     e.target.value = '';
