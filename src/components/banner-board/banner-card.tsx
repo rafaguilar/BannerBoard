@@ -26,9 +26,11 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   Dialog,
   DialogContent,
+  DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { VisuallyHidden } from "@/components/ui/visually-hidden";
 
 interface BannerCardProps {
   banner: Banner;
@@ -45,7 +47,7 @@ export function BannerCard({
   onRemove,
 }: BannerCardProps) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!banner.url.startsWith('data:'));
   const [isError, setIsError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = useState(banner.id);
@@ -195,11 +197,15 @@ export function BannerCard({
             <TooltipContent>Fullscreen</TooltipContent>
           </Tooltip>
           <DialogContent className="max-w-none w-auto h-auto bg-transparent border-none shadow-none p-0">
+            <VisuallyHidden>
+              <DialogTitle>Fullscreen Banner Preview</DialogTitle>
+            </VisuallyHidden>
             <iframe
               src={banner.url}
               className="border-0"
               style={{ width: banner.width, height: banner.height }}
               scrolling="no"
+              title="Fullscreen Banner"
             />
           </DialogContent>
         </Dialog>
