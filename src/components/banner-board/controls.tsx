@@ -283,7 +283,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     },
   });
 
-  const getMimeType = (filename: string): string => {
+ const getMimeType = (filename: string): string => {
     const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
     const mimeTypes: Record<string, string> = {
         '.html': 'text/html', '.htm': 'text/html',
@@ -318,54 +318,54 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         }
         
         let finalHtmlContent = await htmlFile.async("string");
-        let mainJsContent: string | null = null;
-        let styleCssContent: string | null = null;
 
-        const assetDataUrlMap = new Map<string, string>();
+        const assetMap = new Map<string, string>();
+        const textFileContents = new Map<string, string>();
+
         for (const fullPath in zip.files) {
             const zipEntry = zip.files[fullPath];
             if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
             
             const simpleName = zipEntry.name.split('/').pop()!;
             const mime = getMimeType(simpleName);
-            const content = await zipEntry.async("base64");
-            assetDataUrlMap.set(simpleName, `data:${mime};base64,${content}`);
             
-            if (simpleName === 'main.js') {
-              mainJsContent = await zipEntry.async("string");
-            }
-            if (simpleName === 'style.css') {
-              styleCssContent = await zipEntry.async("string");
+            if (mime.startsWith('text/') || mime === 'application/javascript') {
+                 const content = await zipEntry.async("string");
+                 textFileContents.set(simpleName, content);
+            } else {
+                const base64Content = await zipEntry.async("base64");
+                assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
             }
         }
         
-        if (styleCssContent) {
-           for(const [fileName, dataUrl] of assetDataUrlMap.entries()) {
+        let styleCssContent = textFileContents.get('style.css') || '';
+        for(const [fileName, dataUrl] of assetMap.entries()) {
              const regex = new RegExp(`url\\(["']?${fileName}["']?\\)`, 'g');
              styleCssContent = styleCssContent.replace(regex, `url(${dataUrl})`);
-           }
-           finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, `<style>${styleCssContent}</style>`);
         }
+        finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, `<style>${styleCssContent}</style>`);
 
-        if (mainJsContent) {
-            const assetMapScript = `window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetDataUrlMap.entries()))};`;
-            const patchScript = `
-              const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
-              Object.defineProperty(Image.prototype, 'src', {
-                  set: function(value) {
-                      const assetName = value.split('/').pop();
-                      const dataUrl = window.ASSET_MAP[assetName];
-                      if (dataUrl) {
-                        originalImageSrcSetter.call(this, dataUrl);
-                      } else {
-                        originalImageSrcSetter.call(this, value);
-                      }
+        let mainJsContent = textFileContents.get('main.js') || '';
+        
+        const assetMapScript = `<script>window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};</script>`;
+        const monkeyPatchScript = `
+          const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+          Object.defineProperty(Image.prototype, 'src', {
+              set: function(value) {
+                  const assetName = value.split('/').pop();
+                  const dataUrl = window.ASSET_MAP[assetName];
+                  if (dataUrl) {
+                    originalImageSrcSetter.call(this, dataUrl);
+                  } else {
+                    originalImageSrcSetter.call(this, value);
                   }
-              });
-            `;
-            const fullScript = assetMapScript + patchScript + mainJsContent;
-            finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script>${fullScript}</script>`);
-        }
+              }
+          });
+        `;
+        const finalMainJsContent = monkeyPatchScript + mainJsContent;
+        
+        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script>${finalMainJsContent}</script>`);
+        finalHtmlContent = finalHtmlContent.replace('</head>', `${assetMapScript}</head>`);
         
         onAddBanners([{
             url: finalHtmlContent,
@@ -655,3 +655,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
