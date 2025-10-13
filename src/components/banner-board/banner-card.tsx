@@ -69,7 +69,6 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
 
   const handleReload = () => {
-    // Changing the key is the most reliable way to force a full remount and reload of the iframe
     setIframeKey(oldKey => oldKey + '-reload');
     setIsLoading(true);
     setIsError(false);
@@ -119,22 +118,22 @@ export function BannerCard({
     iframe.addEventListener("load", handleLoad);
     iframe.addEventListener("error", handleError);
 
-    // For non-data URLs, we add a timeout. Data URLs should load instantly.
     let timeoutId: NodeJS.Timeout | null = null;
-    if (!isDataUrl) {
+    if (isDataUrl) {
+      // For data URLs, we assume they load very quickly or fail.
+      // A very short timeout helps clear the loading state if the 'load' event doesn't fire for some reason.
+      timeoutId = setTimeout(() => {
+        if(isLoading){
+          handleLoad();
+        }
+      }, 500);
+    } else {
+      // For external URLs, we use a longer timeout.
       timeoutId = setTimeout(() => {
         if (isLoading) {
           handleError(new Event('timeout'));
         }
       }, 10000); // 10s timeout
-    } else {
-        // if it's a data url and it hasn't loaded in a short time, something is wrong
-        // but it's likely not a network issue. We still clear loading state.
-        setTimeout(() => {
-           if(isLoading){
-             handleLoad();
-           }
-        }, 200)
     }
 
     return () => {
@@ -144,7 +143,7 @@ export function BannerCard({
         iframe.removeEventListener("error", handleError);
       }
     };
-  }, [iframeKey, banner.id, banner.url, isDataUrl]);
+  }, [iframeKey, banner.id, isDataUrl, isLoading]);
 
 
   return (
