@@ -321,8 +321,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         throw new Error("No index.html or ad.html file found in the zip archive.");
       }
 
-      const dataUrls = new Map<string, string>();
-      const filePromises: Promise<void>[] = [];
+      const assetContents: Map<string, string> = new Map();
+      const assetDataUrls: Map<string, string> = new Map();
+      const assetPromises: Promise<void>[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
@@ -331,37 +332,40 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         const outputType = isText ? "string" : "base64";
         
         const promise = zipEntry.async(outputType).then(content => {
+          if (isText) {
+            assetContents.set(zipEntry.name, content as string);
+          }
           const mime = getMimeType(zipEntry.name);
           const dataUrl = `data:${mime}${isText ? `;charset=utf-8,${encodeURIComponent(content as string)}` : `;base64,${content}`}`;
-          dataUrls.set(zipEntry.name, dataUrl);
-          // Use full path for replacement
-          const fullPath = zipEntry.name;
-          dataUrls.set(fullPath, dataUrl);
-          // And also just the filename
-          const filename = zipEntry.name.split('/').pop()!;
-          if (filename !== fullPath) {
-            dataUrls.set(filename, dataUrl);
-          }
+          assetDataUrls.set(zipEntry.name, dataUrl);
         });
-        filePromises.push(promise);
+        assetPromises.push(promise);
       });
 
-      await Promise.all(filePromises);
+      await Promise.all(assetPromises);
 
-      let finalHtmlContent = await htmlFile.async("string");
+      const processedContents: Map<string, string> = new Map();
+      const assetPaths = Array.from(assetContents.keys());
+      const dataUrlPaths = Array.from(assetDataUrls.keys()).sort((a,b) => b.length - a.length);
 
-      // Sort keys by length descending to replace longer paths first
-      const sortedPaths = Array.from(dataUrls.keys()).sort((a, b) => b.length - a.length);
+      for (const assetPath of assetPaths) {
+        let content = assetContents.get(assetPath)!;
+        for (const path of dataUrlPaths) {
+          if(path === assetPath) continue;
+          
+          const dataUrl = assetDataUrls.get(path)!;
+          // Look for src="...", href="..." and new Array(...)
+          const pathParts = path.split('/');
+          const filename = pathParts[pathParts.length-1];
 
-      for (const assetPath of sortedPaths) {
-        if (assetPath === htmlFile.name) continue;
-
-        const assetDataUrl = dataUrls.get(assetPath)!;
-        // Escape characters for regex and handle relative paths
-        const searchPath = assetPath.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const regex = new RegExp(`(src|href)=["'](./)?${searchPath}["']`, 'g');
-        finalHtmlContent = finalHtmlContent.replace(regex, `$1="${assetDataUrl}"`);
+          // More robust regex
+          const regex = new RegExp(`(["'])(?:\\.\\/|\\/)?${filename}(["'])`, 'g');
+          content = content.replace(regex, `$1${dataUrl}$2`);
+        }
+        processedContents.set(assetPath, content);
       }
+
+      let finalHtmlContent = processedContents.get(htmlFile.name)!;
       
       onAddBanners([{
         url: finalHtmlContent,
@@ -661,5 +665,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    

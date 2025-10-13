@@ -50,7 +50,7 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
   const isHtmlContent = banner.url.startsWith("<!DOCTYPE html>") || banner.url.startsWith("<html>");
   
-  const [isLoading, setIsLoading] = React.useState(isHtmlContent);
+  const [isLoading, setIsLoading] = React.useState(true);
   const [isError, setIsError] = React.useState(false);
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
@@ -72,9 +72,7 @@ export function BannerCard({
   
   const handleReload = () => {
     setIsError(false);
-    if (isDataUrl || isHtmlContent) {
-      setIsLoading(true);
-    }
+    setIsLoading(true);
     setIframeKey(oldKey => oldKey + '-reload');
   };
 
@@ -250,5 +248,3 @@ export function BannerCard({
     </div>
   );
 }
-
-    
