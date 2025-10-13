@@ -265,176 +265,238 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- HTML5 Upload Panel ---
 const html5UploadSchema = z.object({
-  width: z.coerce.number().min(1, "Width must be at least 1."),
-  height: z.coerce.number().min(1, "Height must be at least 1."),
-  round: z.coerce.number().min(0, "Round must be non-negative."),
-  version: z.coerce.number().min(0, "Version must be non-negative."),
+    width: z.coerce.number().min(1, "Width must be at least 1."),
+    height: z.coerce.number().min(1, "Height must be at least 1."),
+    round: z.coerce.number().min(0, "Round must be non-negative."),
+    version: z.coerce.number().min(0, "Version must be non-negative."),
 });
 
 function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
-  const { toast } = useToast();
-  const form = useForm<z.infer<typeof html5UploadSchema>>({
-    resolver: zodResolver(html5UploadSchema),
-    defaultValues: {
-      width: 300,
-      height: 250,
-      round: 1,
-      version: 1,
-    },
-  });
+    const { toast } = useToast();
+    const form = useForm<z.infer<typeof html5UploadSchema>>({
+        resolver: zodResolver(html5UploadSchema),
+        defaultValues: {
+            width: 300,
+            height: 250,
+            round: 1,
+            version: 1,
+        },
+    });
 
- const getMimeType = (filename: string): string => {
-    const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
-    const mimeTypes: Record<string, string> = {
-        '.html': 'text/html', '.htm': 'text/html',
-        '.css': 'text/css', '.js': 'application/javascript',
-        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.gif': 'image/gif', '.svg': 'image/svg+xml',
-        '.woff': 'font/woff', '.woff2': 'font/woff2',
-        '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
-        '.otf': 'font/otf'
-    };
-    return mimeTypes[ext] || 'application/octet-stream';
-  }
-
- const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const file = files[0];
-
-    if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
-        toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .zip file." });
-        return;
+    const getMimeType = (filename: string): string => {
+        const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
+        const mimeTypes: Record<string, string> = {
+            '.html': 'text/html', '.htm': 'text/html',
+            '.css': 'text/css', '.js': 'application/javascript',
+            '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+            '.gif': 'image/gif', '.svg': 'image/svg+xml',
+            '.woff': 'font/woff', '.woff2': 'font/woff2',
+            '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
+            '.otf': 'font/otf'
+        };
+        return mimeTypes[ext] || 'application/octet-stream';
     }
 
-    const { round, version, width, height } = form.getValues();
+    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (!files || files.length === 0) return;
+        const file = files[0];
 
-    try {
-        const zip = await JSZip.loadAsync(file);
-        const htmlFile = zip.file(/(\/)?(index|ad)\.html?$/i)[0];
-
-        if (!htmlFile) {
-            throw new Error("No index.html or ad.html file found in the zip archive.");
+        if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
+            toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .zip file." });
+            return;
         }
-        
-        let finalHtmlContent = await htmlFile.async("string");
 
-        const assetMap = new Map<string, string>();
-        const textFileContents = new Map<string, string>();
+        const { round, version, width, height } = form.getValues();
 
-        for (const fullPath in zip.files) {
-            const zipEntry = zip.files[fullPath];
-            if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
-            
-            const simpleName = zipEntry.name.split('/').pop()!;
-            const mime = getMimeType(simpleName);
-            
-            if (mime.startsWith('text/') || mime === 'application/javascript') {
-                 const content = await zipEntry.async("string");
-                 textFileContents.set(simpleName, content);
-            } else {
-                const base64Content = await zipEntry.async("base64");
-                assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
+        try {
+            const zip = await JSZip.loadAsync(file);
+            let htmlFile = zip.file(/(\/)?(index|ad)\.html?$/i)[0];
+
+            if (!htmlFile) {
+                htmlFile = Object.values(zip.files).find(f => f.name.endsWith('.html')) || Object.values(zip.files).find(f => f.name.endsWith('.htm'));
+                if (!htmlFile) {
+                    throw new Error("No HTML file found in the zip archive.");
+                }
             }
-        }
-        
-        let styleCssContent = textFileContents.get('style.css') || '';
-        for(const [fileName, dataUrl] of assetMap.entries()) {
-             const regex = new RegExp(`url\\(["']?${fileName}["']?\\)`, 'g');
-             styleCssContent = styleCssContent.replace(regex, `url(${dataUrl})`);
-        }
-        finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, `<style>${styleCssContent}</style>`);
+            
+            let finalHtmlContent = await htmlFile.async("string");
 
-        let mainJsContent = textFileContents.get('main.js') || '';
-        
-        const assetMapScript = `<script>window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};</script>`;
-        const monkeyPatchScript = `
-          const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
-          Object.defineProperty(Image.prototype, 'src', {
-              set: function(value) {
-                  const assetName = value.split('/').pop();
-                  const dataUrl = window.ASSET_MAP[assetName];
-                  if (dataUrl) {
-                    originalImageSrcSetter.call(this, dataUrl);
-                  } else {
-                    originalImageSrcSetter.call(this, value);
+            const assetMap = new Map<string, string>();
+            const textContentMap = new Map<string, string>();
+
+            for (const fullPath in zip.files) {
+                if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
+                
+                const zipEntry = zip.files[fullPath];
+                const simpleName = fullPath.split('/').pop()!;
+                const mime = getMimeType(simpleName);
+                
+                if (mime.startsWith('text/') || mime === 'application/javascript' || mime === 'image/svg+xml') {
+                    const content = await zipEntry.async("string");
+                    textContentMap.set(simpleName, content);
+                } else {
+                    const base64Content = await zipEntry.async("base64");
+                    assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
+                }
+            }
+
+            for (const [fileName, content] of textContentMap.entries()) {
+                let processedContent = content;
+                for (const [assetName, dataUrl] of assetMap.entries()) {
+                    // Match url("assetName"), url('assetName'), url(assetName)
+                    const regex = new RegExp(`url\\(["']?${assetName}["']?\\)`, 'g');
+                    processedContent = processedContent.replace(regex, `url(${dataUrl})`);
+                }
+                if (getMimeType(fileName) === 'image/svg+xml') {
+                    assetMap.set(fileName, `data:image/svg+xml;base64,${btoa(processedContent)}`);
+                } else {
+                    textContentMap.set(fileName, processedContent);
+                }
+            }
+
+            const domParser = new DOMParser();
+            const doc = domParser.parseFromString(finalHtmlContent, 'text/html');
+
+            const patcherScript = `
+              window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(textContentMap.entries()))};
+              window.ASSET_MAP_BINARY = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
+              
+              const originalCreateElement = document.createElement;
+              document.createElement = function(tagName) {
+                  if (tagName.toLowerCase() === 'link') {
+                      const styleElement = originalCreateElement.call(document, 'style');
+                      const listeners = new Map();
+                      
+                      // Mock addEventListener for 'load'
+                      styleElement.addEventListener = function(type, listener, options) {
+                          if (type === 'load') {
+                              listeners.set(listener, listener);
+                          } else {
+                              HTMLElement.prototype.addEventListener.call(this, type, listener, options);
+                          }
+                      };
+
+                      // Mock setAttribute for 'href'
+                      const originalSetAttribute = styleElement.setAttribute;
+                      styleElement.setAttribute = function(name, value) {
+                          if (name.toLowerCase() === 'href') {
+                              const fileName = value.split('/').pop();
+                              if (window.ASSET_MAP[fileName]) {
+                                  this.innerHTML = window.ASSET_MAP[fileName];
+                                  // Trigger load listeners
+                                  setTimeout(() => {
+                                    listeners.forEach(l => l());
+                                  }, 0);
+                              }
+                          } else {
+                              originalSetAttribute.call(this, name, value);
+                          }
+                      };
+                      return styleElement;
                   }
+                  return originalCreateElement.call(document, tagName);
+              };
+
+              const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+              Object.defineProperty(Image.prototype, 'src', {
+                  set: function(value) {
+                      const assetName = value.split('/').pop();
+                      if (window.ASSET_MAP_BINARY && window.ASSET_MAP_BINARY[assetName]) {
+                        originalImageSrcSetter.call(this, window.ASSET_MAP_BINARY[assetName]);
+                      } else {
+                        originalImageSrcSetter.call(this, value);
+                      }
+                  }
+              });
+            `;
+
+            const scriptEl = doc.createElement('script');
+            scriptEl.textContent = patcherScript;
+            doc.head.insertBefore(scriptEl, doc.head.firstChild);
+
+            // Remove existing script tags that load main.js to re-add it later
+            Array.from(doc.querySelectorAll('script')).forEach(s => {
+              if (s.src.includes('main.js')) {
+                s.remove();
               }
-          });
-        `;
-        const finalMainJsContent = monkeyPatchScript + mainJsContent;
-        
-        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script>${finalMainJsContent}</script>`);
-        finalHtmlContent = finalHtmlContent.replace('</head>', `${assetMapScript}</head>`);
-        
-        onAddBanners([{
-            url: finalHtmlContent,
-            width, height, round, version,
-        }]);
+            });
 
-        toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} was successfully processed.` });
+            const mainJsContent = textContentMap.get('main.js') || '';
+            const mainScriptEl = doc.createElement('script');
+            mainScriptEl.textContent = mainJsContent;
+            doc.body.appendChild(mainScriptEl);
+            
+            const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
+            
+            onAddBanners([{
+                url: finalHtml,
+                width, height, round, version,
+            }]);
 
-    } catch (error) {
-        console.error("Error processing zip file:", error);
-        toast({ variant: "destructive", title: "Zip Processing Error", description: (error as Error).message || "Could not read the zip file." });
-    }
+            toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} was successfully processed.` });
 
-    e.target.value = '';
-  };
-  
-  return (
-    <Form {...form}>
-      <form className="space-y-4 p-4">
-        <div className="grid grid-cols-2 gap-4">
-          <FormField control={form.control} name="width" render={({ field }) => (
-            <FormItem>
-              <FormLabel>Width</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
-              <FormMessage />
-            </FormItem>
-          )} />
-          <FormField control={form.control} name="height" render={({ field }) => (
-            <FormItem>
-              <FormLabel>Height</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
-              <FormMessage />
-            </FormItem>
-          )} />
-          <FormField control={form.control} name="round" render={({ field }) => (
-            <FormItem>
-              <FormLabel>Round</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
-              <FormMessage />
-            </FormItem>
-          )} />
-          <FormField control={form.control} name="version" render={({ field }) => (
-            <FormItem>
-              <FormLabel>Version</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
-              <FormMessage />
-            </FormItem>
-          )} />
-        </div>
-        <div>
-          <FormLabel htmlFor="html5-file-upload">HTML5 Zip File</FormLabel>
-          <div className="mt-2">
-            <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-              <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
-                <div className="text-center">
-                  <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
-                  <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
+        } catch (error) {
+            console.error("Error processing zip file:", error);
+            toast({ variant: "destructive", title: "Zip Processing Error", description: (error as Error).message || "Could not read the zip file." });
+        }
+
+        e.target.value = '';
+    };
+
+    return (
+        <Form {...form}>
+            <form className="space-y-4 p-4">
+                <div className="grid grid-cols-2 gap-4">
+                    <FormField control={form.control} name="width" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Width</FormLabel>
+                            <FormControl><Input type="number" {...field} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )} />
+                    <FormField control={form.control} name="height" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Height</FormLabel>
+                            <FormControl><Input type="number" {...field} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )} />
+                    <FormField control={form.control} name="round" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Round</FormLabel>
+                            <FormControl><Input type="number" {...field} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )} />
+                    <FormField control={form.control} name="version" render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Version</FormLabel>
+                            <FormControl><Input type="number" {...field} /></FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )} />
                 </div>
-              </div>
-              <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} />
-            </label>
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Upload a zip file containing an HTML5 banner (with an index.html or ad.html).
-        </p>
-      </form>
-    </Form>
-  );
+                <div>
+                    <FormLabel htmlFor="html5-file-upload">HTML5 Zip File</FormLabel>
+                    <div className="mt-2">
+                        <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+                            <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
+                                <div className="text-center">
+                                    <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
+                                    <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
+                                </div>
+                            </div>
+                            <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} />
+                        </label>
+                    </div>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                    Upload a zip file containing an HTML5 banner (with an index.html or ad.html).
+                </p>
+            </form>
+        </Form>
+    );
 }
 
 // --- AI Anomaly Panel ---
