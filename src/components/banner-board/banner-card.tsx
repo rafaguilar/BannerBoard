@@ -72,27 +72,16 @@ export function BannerCard({
       console.log(`Reloading banner: ${banner.id} (${isDataUrl ? 'data URL' : 'remote URL'})`);
       setIsLoading(true);
       setIsError(false);
-      // Changing src attribute is enough to trigger a reload, especially with the key.
-      // A common trick is to set to about:blank first for remote URLs.
-      if (!isDataUrl) {
-        iframeRef.current.src = "about:blank";
-        setTimeout(() => {
-          if(iframeRef.current) {
-            iframeRef.current.src = banner.url;
-          }
-        }, 50);
-      } else {
-         // For data URLs, just re-assigning the same src might not be enough
-         // due to browser caching. A trick is to slightly change it or force re-mount
-         // but the `key` on the iframe should handle this. Let's try a direct re-assignment.
-         const currentSrc = iframeRef.current.src;
-         iframeRef.current.src = "about:blank";
-         setTimeout(() => {
-          if(iframeRef.current) {
-            iframeRef.current.src = currentSrc;
-          }
-         }, 50)
-      }
+      
+      const iframe = iframeRef.current;
+      const currentSrc = iframe.src;
+      // Force reload
+      iframe.src = 'about:blank';
+      setTimeout(() => {
+        if (iframe) {
+          iframe.src = currentSrc;
+        }
+      }, 50);
     }
   };
 
@@ -102,7 +91,7 @@ export function BannerCard({
         const canvas = await html2canvas(cardRef.current, {
           allowTaint: true,
           useCORS: true,
-          logging: true, // Let's enable logging for screenshots
+          logging: true,
         });
         canvas.toBlob((blob) => {
           if (blob) {
@@ -124,17 +113,16 @@ export function BannerCard({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+
+    const isDataUrl = banner.url.startsWith('data:');
     
-    // For data URLs, we assume they load instantly and don't show the loader.
+    // For data URLs, we assume they load quickly and don't need a timeout.
     if (isDataUrl) {
-      console.log(`Banner ${banner.id} is a data URL. Setting isLoading to false.`);
       setIsLoading(false);
       setIsError(false);
-      return;
+    } else {
+      setIsLoading(true);
     }
-
-    console.log(`Setting up listeners for remote banner: ${banner.id}`);
-    setIsLoading(true);
 
     const handleLoad = () => {
       console.log(`Banner ${banner.id} finished loading.`);
@@ -142,31 +130,34 @@ export function BannerCard({
       setIsError(false);
     };
 
-    const handleError = (e: ErrorEvent) => {
+    const handleError = (e: ErrorEvent | Event) => {
       console.error(`Banner ${banner.id} failed to load.`, e);
       setIsLoading(false);
       setIsError(true);
     };
 
-    const timeoutId = setTimeout(() => {
-        if (isLoading) {
-            console.warn(`Banner ${banner.id} timed out.`);
-            handleError(new ErrorEvent('timeout', { message: 'Banner loading timed out' }));
-        }
-    }, 10000); // 10s timeout for remote URLs
+    let timeoutId: NodeJS.Timeout | null = null;
+    if (!isDataUrl) {
+        timeoutId = setTimeout(() => {
+            if (isLoading) {
+                console.warn(`Banner ${banner.id} timed out.`);
+                handleError(new Event('timeout'));
+            }
+        }, 10000); // 10s timeout for remote URLs
+    }
 
     iframe.addEventListener("load", handleLoad);
     iframe.addEventListener("error", handleError);
 
     return () => {
       console.log(`Cleaning up listeners for banner: ${banner.id}`);
-      clearTimeout(timeoutId);
+      if (timeoutId) clearTimeout(timeoutId);
       if (iframe) {
         iframe.removeEventListener("load", handleLoad);
         iframe.removeEventListener("error", handleError);
       }
     };
-  }, [banner.id, banner.url, isDataUrl, isLoading]);
+  }, [banner.id, banner.url, isLoading]);
 
 
   return (
@@ -188,7 +179,7 @@ export function BannerCard({
       >
         <div className="absolute inset-0 z-10 flex cursor-move items-center justify-center bg-transparent" {...attributes} {...listeners} />
 
-        {isLoading && (
+        {isLoading && !isDataUrl && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-card/80 text-card-foreground">
             <Loader className="h-8 w-8 animate-spin" />
             <p className="text-sm">Loading Banner...</p>
@@ -214,7 +205,7 @@ export function BannerCard({
           scrolling="no"
           className={cn(
             "pointer-events-none border-0 transition-opacity",
-            (isLoading || isError) && "opacity-0"
+            (isLoading || isError) && !isDataUrl && "opacity-0"
           )}
           title={`Banner ${banner.width}x${banner.height}`}
         />
