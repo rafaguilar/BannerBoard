@@ -322,93 +322,68 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         throw new Error("No index.html or ad.html file found in the zip archive.");
       }
 
-      const assetContents: Map<string, string> = new Map();
       const assetDataUrls: Map<string, string> = new Map();
       const assetPromises: Promise<void>[] = [];
-      const imageAssetsForMap: Map<string, string> = new Map();
+      const textFileContents: Map<string, string> = new Map();
+      const imageFileNames: string[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
 
         const isText = zipEntry.name.match(/\.(css|js|svg|html|htm|json|xml)$/i);
-        const isImage = zipEntry.name.match(/\.(png|jpg|jpeg|gif)$/i);
         const outputType = isText ? "string" : "base64";
         
         const promise = zipEntry.async(outputType).then(content => {
             const mime = getMimeType(zipEntry.name);
-            let dataUrl;
-            if (isText) {
-                assetContents.set(zipEntry.name, content as string);
-                dataUrl = `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`;
-            } else {
-                dataUrl = `data:${mime};base64,${content}`;
-            }
-            assetDataUrls.set(zipEntry.name, dataUrl);
+            const fileName = zipEntry.name.split('/').pop()!;
             
-            if (isImage) {
-                const fileName = zipEntry.name.split('/').pop()!;
-                imageAssetsForMap.set(fileName, dataUrl);
+            if (isText) {
+                textFileContents.set(relativePath, content as string);
+                assetDataUrls.set(fileName, `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`);
+            } else {
+                assetDataUrls.set(fileName, `data:${mime};base64,${content}`);
+            }
+            if (zipEntry.name.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
+              imageFileNames.push(fileName);
             }
         });
         assetPromises.push(promise);
       });
       
       await Promise.all(assetPromises);
+      
+      let mainJsContent = textFileContents.get(Object.keys(textFileContents).find(p => p.endsWith('main.js')) || '');
 
-      const processedContents: Map<string, string> = new Map();
-      const assetPaths = Array.from(assetContents.keys());
-      const dataUrlPaths = Array.from(assetDataUrls.keys()).sort((a,b) => b.length - a.length);
-
-      for (const assetPath of assetPaths) {
-          let content = assetContents.get(assetPath)!;
-          
-          if(assetPath.endsWith('.js')){
-              // Special handling for JS image arrays.
-              // This is a bit of a hack, but it targets the specific preload pattern.
-              content = content.replace(/new Array\(([^)]+)\)/, (match, p1) => {
-                  return match; // Keep the array as is
-              });
-              content = content.replace(/_tempImage.src = _imageArray\[i\];/, '_tempImage.src = window.ASSET_MAP[_imageArray[i]];');
-          }
-
-          for (const dataUrlPath of dataUrlPaths) {
-            if(dataUrlPath === assetPath) continue;
-
-            const dataUrl = assetDataUrls.get(dataUrlPath)!;
-            const fileName = dataUrlPath.split('/').pop()!;
-            
-            // Don't replace if it's in the image array in JS
-            if(assetPath.endsWith('.js') && content.includes(`new Array`)) {
-                if (new RegExp(`'${fileName}'|"\\"${fileName}\\""`).test(content)){
-                   continue;
-                }
-            }
-
-            const regex = new RegExp(`(["'(=])(?:\\.?\\/)?${fileName}(["')])`, 'g');
-            content = content.replace(regex, `$1${dataUrl}$2`);
-          }
-          processedContents.set(assetPath, content);
+      if(mainJsContent) {
+        // Replace image array with data URLs
+        mainJsContent = mainJsContent.replace(/_imageArray\s*=\s*new\s*Array\(([^)]+)\)/, (match, imageList) => {
+          const images = imageList.split(',').map((img: string) => img.trim().replace(/['"]/g, ''));
+          const newDataUrls = images.map((img: string) => `'${assetDataUrls.get(img) || img}'`);
+          return `_imageArray = new Array(${newDataUrls.join(',')})`;
+        });
+        
+        // Since data URLs load instantly, bypass the preloader and call loadCSS directly.
+        mainJsContent = mainJsContent.replace(
+          'this.addEventListener("DOMContentLoaded", preloadImages);',
+          'this.addEventListener("DOMContentLoaded", function() { loadCSS(); });'
+        );
+        const mainJsPath = Object.keys(textFileContents).find(p => p.endsWith('main.js'));
+        if(mainJsPath) {
+          textFileContents.set(mainJsPath, mainJsContent);
+        }
       }
 
-      let finalHtmlContent = processedContents.get(htmlFile.name)!;
+      let finalHtmlContent = textFileContents.get(htmlFile.name)!;
 
-      // Inject the asset map and modify the original HTML
-      const assetMapString = JSON.stringify(Object.fromEntries(imageAssetsForMap));
-      const assetMapScript = `<script>window.ASSET_MAP = ${assetMapString};</script>`;
-
-      // Replace main.js and style.css in the final HTML
-      for(const path of ['main.js', 'style.css']) {
-          const fileInDataUrls = dataUrlPaths.find(p => p.endsWith(path))
-          if(fileInDataUrls) {
-              const content = processedContents.get(fileInDataUrls)!;
-              const dataUrl = `data:${getMimeType(path)};charset=utf-8,${encodeURIComponent(content)}`;
-              const regex = new RegExp(`(src|href)=["'](?:\\.?\\/)?${path}["']`);
-              finalHtmlContent = finalHtmlContent.replace(regex, (match, p1) => `${p1}="${dataUrl}"`);
-          }
+      // Replace script and link tags in HTML
+      for(const [path, content] of textFileContents.entries()){
+        const fileName = path.split('/').pop()!;
+        const dataUrl = `data:${getMimeType(fileName)};charset=utf-8,${encodeURIComponent(content)}`;
+        const regex = new RegExp(`(src|href)=["'](./)?${fileName}["']`, 'g');
+        finalHtmlContent = finalHtmlContent.replace(regex, `$1="${dataUrl}"`);
       }
-      
-      finalHtmlContent = finalHtmlContent.replace('</head>', `${assetMapScript}</head>`);
-      
+
+
       onAddBanners([{
         url: finalHtmlContent,
         width,
