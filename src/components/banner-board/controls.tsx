@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState } from "react";
@@ -282,6 +283,24 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     },
   });
 
+  const getMimeType = (filename: string) => {
+    const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
+    const mimeTypes: Record<string, string> = {
+      '.html': 'text/html', '.htm': 'text/html',
+      '.css': 'text/css', '.js': 'application/javascript',
+      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif', '.svg': 'image/svg+xml',
+      '.woff': 'font/woff', '.woff2': 'font/woff2',
+      '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
+      '.otf': 'font/otf'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
+  
+  const escapeRegExp = (string: string) => {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -302,6 +321,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       console.log("Starting zip file processing...");
       const zip = await JSZip.loadAsync(file);
       const htmlFile = zip.file(/(\.html|\.htm)$/i)[0];
+
       if (!htmlFile) {
         throw new Error("No HTML file found in the zip archive.");
       }
@@ -309,44 +329,64 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       
       const rootFolder = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
 
-      const filePromises: Promise<{ path: string, dataUrl: string }>[] = [];
+      const textFileExtensions = ['.html', '.htm', '.css', '.js', '.svg'];
+      const assetContents = new Map<string, string>();
+      const filePromises: Promise<void>[] = [];
+
       zip.forEach((relativePath, zipEntry) => {
         if (!zipEntry.dir && !zipEntry.name.startsWith('__MACOSX')) {
-          const promise = zipEntry.async("base64").then(content => {
-            const mimeType = getMimeType(zipEntry.name);
-            console.log(`Processing file: ${zipEntry.name}, MIME type: ${mimeType}`);
-            return { path: zipEntry.name, dataUrl: `data:${mimeType};base64,${content}` };
+          const fileExtension = `.${zipEntry.name.split('.').pop()?.toLowerCase()}`;
+          const isText = textFileExtensions.includes(fileExtension);
+          const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
+            if (isText) {
+              assetContents.set(zipEntry.name, content);
+            } else {
+              const mimeType = getMimeType(zipEntry.name);
+              assetContents.set(zipEntry.name, `data:${mimeType};base64,${content}`);
+            }
+            console.log(`Processing file: ${zipEntry.name}`);
           });
           filePromises.push(promise);
         }
       });
       
-      const allFiles = await Promise.all(filePromises);
-      const fileMap = new Map(allFiles.map(f => [f.path, f.dataUrl]));
-      
-      let htmlContent = await htmlFile.async("string");
-      console.log("Original HTML content length:", htmlContent.length);
+      await Promise.all(filePromises);
 
-      // Replace relative paths with data URLs
-      fileMap.forEach((dataUrl, path) => {
-        // Create a path relative to the HTML file if it's in a subdirectory
-        const relativePath = path.startsWith(rootFolder) ? path.substring(rootFolder.length) : path;
+      const finalAssetContents = new Map<string, string>();
+      
+      for (const [path, content] of assetContents.entries()) {
+        let currentContent = content;
+        const fileExtension = `.${path.split('.').pop()?.toLowerCase()}`;
         
-        // Don't try to replace the path of the HTML file itself
-        if (relativePath === 'index.html' || relativePath === 'index.htm') return;
+        if (textFileExtensions.includes(fileExtension)) {
+          for (const [assetPath, assetContent] of assetContents.entries()) {
+             if (path === assetPath) continue;
 
-        // More robust regex to handle different path styles (e.g. ./, / or just the name)
-        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativePath)}["']`, "g");
-        const originalHtmlContent = htmlContent;
-        htmlContent = htmlContent.replace(regex, `$1="${dataUrl}"`);
-        if (originalHtmlContent !== htmlContent) {
-          console.log(`Replaced path for: ${relativePath}`);
+             const relativePathToAsset = assetPath.startsWith(rootFolder) ? assetPath.substring(rootFolder.length) : assetPath;
+             const dataUrl = textFileExtensions.includes(`.${assetPath.split('.').pop()?.toLowerCase()}`) 
+                ? assetContents.get(assetPath) : assetContent;
+             
+             if(dataUrl) {
+                const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativePathToAsset)}["']`, "g");
+                const originalLength = currentContent.length;
+                currentContent = currentContent.replace(regex, `$1="${dataUrl}"`);
+
+                if (currentContent.length !== originalLength) {
+                    console.log(`Replaced path for: ${relativePathToAsset} in ${path}`);
+                }
+             }
+          }
         }
-      });
-      
-      console.log("Final HTML content length:", htmlContent.length);
+        finalAssetContents.set(path, currentContent);
+      }
 
-      const finalHtmlDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`;
+      const finalHtmlContent = finalAssetContents.get(htmlFile.name);
+
+      if (!finalHtmlContent) {
+        throw new Error("Could not construct final HTML content.");
+      }
+      
+      const finalHtmlDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(finalHtmlContent)}`;
       console.log("Generated data URL for banner.");
       
       onAddBanners([{
@@ -373,24 +413,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     e.target.value = '';
   };
   
-  const getMimeType = (filename: string) => {
-    const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
-    const mimeTypes: Record<string, string> = {
-      '.html': 'text/html', '.htm': 'text/html',
-      '.css': 'text/css', '.js': 'application/javascript',
-      '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-      '.gif': 'image/gif', '.svg': 'image/svg+xml',
-      '.woff': 'font/woff', '.woff2': 'font/woff2',
-      '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
-      '.otf': 'font/otf'
-    };
-    return mimeTypes[ext] || 'application/octet-stream';
-  }
-  
-  const escapeRegExp = (string: string) => {
-    // Escape characters with special meaning in regular expressions
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
 
   return (
     <Form {...form}>
@@ -665,5 +687,7 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
 
     
