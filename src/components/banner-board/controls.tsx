@@ -322,7 +322,8 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         throw new Error("No index.html or ad.html file found in the zip archive.");
       }
 
-      const assetDataUrlMap = new Map<string, string>();
+      // Step 1: Create a map of all assets to their data URLs
+      const assetMap = new Map<string, string>();
       const fileReadPromises: Promise<any>[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
@@ -336,36 +337,55 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           const mime = getMimeType(zipEntry.name);
           let dataUrl;
           if (isText) {
-            dataUrl = `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`;
+            // For text files, we might not need to encode them if they are being embedded directly
+             if (mime === 'image/svg+xml') {
+              dataUrl = `data:image/svg+xml;base64,${btoa(content as string)}`;
+             } else {
+               assetMap.set(simpleFileName, content);
+               return;
+             }
           } else {
             dataUrl = `data:${mime};base64,${content}`;
           }
-          assetDataUrlMap.set(simpleFileName, dataUrl);
+          assetMap.set(simpleFileName, dataUrl);
         });
         fileReadPromises.push(promise);
       });
 
       await Promise.all(fileReadPromises);
 
+      // Step 2: Process text files (CSS, JS) to replace internal asset paths
+      for (const [fileName, content] of assetMap.entries()) {
+        if (fileName.endsWith('.css') || fileName.endsWith('.js')) {
+          let processedContent = content;
+          for (const [assetName, dataUrl] of assetMap.entries()) {
+            if (fileName === assetName) continue; // Don't replace a file with itself
+             const regex = new RegExp(`(["'\\(])(./)?${assetName}(["'\\)])`, "g");
+             processedContent = processedContent.replace(regex, `$1${dataUrl}$3`);
+          }
+          assetMap.set(fileName, processedContent);
+        }
+      }
+
+      // Step 3: Build the final HTML
       let finalHtmlContent = await htmlFile.async("string");
 
-      for (const [fileName, dataUrl] of assetDataUrlMap.entries()) {
-        // Regex to find the filename in src/href attributes, or in url() calls in CSS
-        // It looks for the filename surrounded by quotes or parentheses
-        const regex = new RegExp(`(["'\\(])(./)?${fileName}(["'\\)])`, "g");
-        finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
+      // Inject styles directly
+      const styleContent = assetMap.get('style.css') || '';
+      const styleElement = `<style>${styleContent}</style>`;
+      finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']style\.css["'][^>]*>/, styleElement);
+
+      // Replace script tag with inline script
+      const scriptContent = assetMap.get('main.js') || '';
+      const scriptDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(scriptContent)}`;
+      finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']main\.js["'][^>]*><\/script>/, `<script src="${scriptDataUrl}"></script>`);
+
+      // Replace all other asset paths
+      for (const [fileName, dataUrl] of assetMap.entries()) {
+          if(fileName.endsWith('.js') || fileName.endsWith('.css')) continue;
+          const regex = new RegExp(`(["'])(./)?${fileName}(["'])`, "g");
+          finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
       }
-       
-      zip.file(/\.(js|css)$/i).forEach(async (file) => {
-        let content = await file.async("string");
-         for (const [fileName, dataUrl] of assetDataUrlMap.entries()) {
-            const regex = new RegExp(`(["'\\(])(./)?${fileName}(["'\\)])`, "g");
-            content = content.replace(regex, `$1${dataUrl}$3`);
-         }
-         const finalDataUrl = `data:${getMimeType(file.name)};charset=utf-8,${encodeURIComponent(content)}`;
-         const htmlRegex = new RegExp(`(<(?:link|script).*(?:href|src)=["'])(./)?${file.name}(["'].*>)`, "g");
-         finalHtmlContent = finalHtmlContent.replace(htmlRegex, `$1${finalDataUrl}$3`);
-      });
 
 
       onAddBanners([{
