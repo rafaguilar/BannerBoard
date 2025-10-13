@@ -156,6 +156,7 @@ export function BannerCard({
           title={`Banner ${banner.width}x${banner.height}`}
           onLoad={handleLoad}
           onError={handleError}
+          sandbox="allow-scripts allow-same-origin"
         />
       </div>
 
@@ -206,6 +207,7 @@ export function BannerCard({
               style={{ width: banner.width, height: banner.height }}
               scrolling="no"
               title="Fullscreen Banner"
+              sandbox="allow-scripts allow-same-origin"
             />
           </DialogContent>
         </Dialog>
