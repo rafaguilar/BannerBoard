@@ -111,7 +111,6 @@ export function BannerCard({
   }
   
   const iframeProps = {
-    key: iframeKey,
     width: banner.width,
     height: banner.height,
     scrolling: 'no' as const,
@@ -162,9 +161,9 @@ export function BannerCard({
           </div>
         )}
         {isDataUrl ? (
-          <iframe {...iframeProps} srcDoc={banner.url} />
+          <iframe key={iframeKey} {...iframeProps} srcDoc={banner.url} />
         ) : (
-          <iframe {...iframeProps} src={banner.url} />
+          <iframe key={iframeKey} {...iframeProps} src={banner.url} />
         )}
       </div>
 
