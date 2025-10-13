@@ -321,6 +321,8 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             }
             
             let finalHtmlContent = await htmlFile.async("string");
+            const domParser = new DOMParser();
+            const doc = domParser.parseFromString(finalHtmlContent, 'text/html');
 
             const assetMap = new Map<string, string>();
             const textContentMap = new Map<string, string>();
@@ -341,92 +343,45 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 }
             }
 
-            for (const [fileName, content] of textContentMap.entries()) {
-                let processedContent = content;
-                for (const [assetName, dataUrl] of assetMap.entries()) {
-                    // Match url("assetName"), url('assetName'), url(assetName)
-                    const regex = new RegExp(`url\\(["']?${assetName}["']?\\)`, 'g');
-                    processedContent = processedContent.replace(regex, `url(${dataUrl})`);
-                }
-                if (getMimeType(fileName) === 'image/svg+xml') {
-                    assetMap.set(fileName, `data:image/svg+xml;base64,${btoa(processedContent)}`);
-                } else {
-                    textContentMap.set(fileName, processedContent);
-                }
+            let cssContent = textContentMap.get('style.css') || '';
+            for (const [assetName, dataUrl] of assetMap.entries()) {
+                const regex = new RegExp(`url\\(["']?${assetName}["']?\\)`, 'g');
+                cssContent = cssContent.replace(regex, `url(${dataUrl})`);
             }
 
-            const domParser = new DOMParser();
-            const doc = domParser.parseFromString(finalHtmlContent, 'text/html');
+            const styleElement = doc.createElement('style');
+            styleElement.textContent = cssContent;
+            doc.head.querySelector('link[href="style.css"]')?.remove();
+            doc.head.appendChild(styleElement);
 
-            const patcherScript = `
-              window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(textContentMap.entries()))};
-              window.ASSET_MAP_BINARY = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
-              
-              const originalCreateElement = document.createElement;
-              document.createElement = function(tagName) {
-                  if (tagName.toLowerCase() === 'link') {
-                      const styleElement = originalCreateElement.call(document, 'style');
-                      const listeners = new Map();
-                      
-                      // Mock addEventListener for 'load'
-                      styleElement.addEventListener = function(type, listener, options) {
-                          if (type === 'load') {
-                              listeners.set(listener, listener);
-                          } else {
-                              HTMLElement.prototype.addEventListener.call(this, type, listener, options);
-                          }
-                      };
-
-                      // Mock setAttribute for 'href'
-                      const originalSetAttribute = styleElement.setAttribute;
-                      styleElement.setAttribute = function(name, value) {
-                          if (name.toLowerCase() === 'href') {
-                              const fileName = value.split('/').pop();
-                              if (window.ASSET_MAP[fileName]) {
-                                  this.innerHTML = window.ASSET_MAP[fileName];
-                                  // Trigger load listeners
-                                  setTimeout(() => {
-                                    listeners.forEach(l => l());
-                                  }, 0);
-                              }
-                          } else {
-                              originalSetAttribute.call(this, name, value);
-                          }
-                      };
-                      return styleElement;
-                  }
-                  return originalCreateElement.call(document, tagName);
-              };
-
-              const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
-              Object.defineProperty(Image.prototype, 'src', {
-                  set: function(value) {
-                      const assetName = value.split('/').pop();
-                      if (window.ASSET_MAP_BINARY && window.ASSET_MAP_BINARY[assetName]) {
-                        originalImageSrcSetter.call(this, window.ASSET_MAP_BINARY[assetName]);
-                      } else {
-                        originalImageSrcSetter.call(this, value);
-                      }
-                  }
-              });
-            `;
-
-            const scriptEl = doc.createElement('script');
-            scriptEl.textContent = patcherScript;
-            doc.head.insertBefore(scriptEl, doc.head.firstChild);
-
-            // Remove existing script tags that load main.js to re-add it later
-            Array.from(doc.querySelectorAll('script')).forEach(s => {
-              if (s.src.includes('main.js')) {
-                s.remove();
-              }
-            });
 
             const mainJsContent = textContentMap.get('main.js') || '';
-            const mainScriptEl = doc.createElement('script');
-            mainScriptEl.textContent = mainJsContent;
-            doc.body.appendChild(mainScriptEl);
             
+            const patcherScript = `
+                window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
+
+                const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+                Object.defineProperty(Image.prototype, 'src', {
+                    set: function(value) {
+                        const assetName = value.split('/').pop();
+                        if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                          originalImageSrcSetter.call(this, window.ASSET_MAP[assetName]);
+                        } else {
+                          originalImageSrcSetter.call(this, value);
+                        }
+                    }
+                });
+            `;
+
+            const patcherScriptElement = doc.createElement('script');
+            patcherScriptElement.textContent = patcherScript;
+            doc.head.appendChild(patcherScriptElement);
+
+            doc.querySelector('script[src="main.js"]')?.remove();
+            const mainScriptElement = doc.createElement('script');
+            mainScriptElement.textContent = mainJsContent;
+            doc.body.appendChild(mainScriptElement);
+
             const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
             
             onAddBanners([{
@@ -717,5 +672,7 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
 
     
