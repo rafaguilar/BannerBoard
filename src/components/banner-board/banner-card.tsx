@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React from 'react';
 import html2canvas from "html2canvas";
 import { saveAs } from "file-saver";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,11 +47,13 @@ export function BannerCard({
   onRemove,
 }: BannerCardProps) {
   const { toast } = useToast();
-  const isDataUrl = banner.url.startsWith('data:text/html');
-  const [isLoading, setIsLoading] = useState(!isDataUrl);
-  const [isError, setIsError] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  const [iframeKey, setIframeKey] = useState(banner.id);
+  const isDataUrl = banner.url.startsWith('data:');
+  const isHtmlContent = banner.url.startsWith("<!DOCTYPE html>") || banner.url.startsWith("<html>");
+  
+  const [isLoading, setIsLoading] = React.useState(isDataUrl && isHtmlContent);
+  const [isError, setIsError] = React.useState(false);
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const [iframeKey, setIframeKey] = React.useState(banner.id);
 
   const {
     attributes,
@@ -70,7 +72,7 @@ export function BannerCard({
   
   const handleReload = () => {
     setIsError(false);
-    if (!isDataUrl) {
+    if (isDataUrl) {
       setIsLoading(true);
     }
     setIframeKey(oldKey => oldKey + '-reload');
@@ -95,7 +97,7 @@ export function BannerCard({
         toast({
           variant: "destructive",
           title: "Screenshot Failed",
-          description: "Could not capture screenshot. This can happen with banners from external domains or complex HTML5 content.",
+          description: "Could not capture screenshot. This can happen with complex HTML5 content.",
         });
       }
     }
@@ -111,16 +113,18 @@ export function BannerCard({
   }
   
   const iframeProps = {
+    key: iframeKey,
     width: banner.width,
     height: banner.height,
-    scrolling: 'no' as const,
+    scrolling: "no" as const,
     className: cn(
         "pointer-events-none border-0 transition-opacity",
-        (isLoading || isError) && "opacity-0"
+        isLoading && "opacity-0"
     ),
     title: `Banner ${banner.width}x${banner.height}`,
     onLoad: handleLoad,
     onError: handleError,
+    sandbox: "allow-scripts allow-same-origin"
   };
 
   return (
@@ -159,10 +163,11 @@ export function BannerCard({
             </Button>
           </div>
         )}
-        {isDataUrl ? (
-          <iframe key={iframeKey} {...iframeProps} srcDoc={banner.url} sandbox="allow-scripts allow-same-origin" />
+        
+        {isHtmlContent ? (
+           <iframe {...iframeProps} srcDoc={banner.url} />
         ) : (
-          <iframe key={iframeKey} {...iframeProps} src={banner.url} />
+             <iframe {...iframeProps} src={banner.url} />
         )}
       </div>
 
@@ -207,7 +212,7 @@ export function BannerCard({
             <VisuallyHidden>
               <DialogTitle>Fullscreen Banner Preview</DialogTitle>
             </VisuallyHidden>
-             {isDataUrl ? (
+             {isHtmlContent ? (
                 <iframe
                     key={iframeKey}
                     className="border-0"

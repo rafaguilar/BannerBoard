@@ -333,41 +333,40 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       const filePromises: Promise<void>[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
-          if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('.DS_Store')) {
-              console.log(`Skipping directory or meta file: ${zipEntry.name}`);
-              return;
-          }
+        if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) {
+          console.log(`Skipping directory or meta file: ${zipEntry.name}`);
+          return;
+        }
+        
+        const isText = zipEntry.name.match(/\.(html?|css|js|svg|xml|json)$/i);
 
-          const isText = zipEntry.name.match(/\.(html?|css|js|svg|xml|json)$/i);
-          const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
-              const mime = getMimeType(zipEntry.name);
-              const dataUrl = isText
-                  ? `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`
-                  : `data:${mime};base64,${content}`;
-              assetDataUrls.set(zipEntry.name, dataUrl);
-          });
-          filePromises.push(promise);
+        const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
+            const mime = getMimeType(zipEntry.name);
+            const dataUrl = isText
+                ? `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`
+                : `data:${mime};base64,${content}`;
+            assetDataUrls.set(zipEntry.name, dataUrl);
+            console.log(`Processing file: ${zipEntry.name}, MIME type: ${mime}`);
+        });
+        filePromises.push(promise);
       });
-
+      
       await Promise.all(filePromises);
 
       let finalHtmlContent = await htmlFile.async("string");
-      console.log("Original HTML content length:", finalHtmlContent.length);
 
       for (const [path, dataUrl] of assetDataUrls.entries()) {
-          const searchPath = path.replace(rootPath, '');
-          // This regex looks for src="...", href="..." or url(...) and replaces the path.
-          const regex = new RegExp(`(["'\\(])(${escapeRegExp(searchPath)})(["'\\)])`, 'g');
-          if (finalHtmlContent.includes(searchPath)) {
-            finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
-          }
+        const searchPath = path.replace(rootPath, '');
+        const regex = new RegExp(`(["'\\(])(./|)${escapeRegExp(searchPath)}(["'\\)])`, 'g');
+        if (finalHtmlContent.includes(searchPath)) {
+          finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
+        }
       }
       
-      console.log("Final HTML content length:", finalHtmlContent.length);
       console.log("Generated final HTML for srcdoc.");
       
       onAddBanners([{
-        url: finalHtmlContent, // Pass the HTML string itself
+        url: finalHtmlContent,
         width,
         height,
         round,
