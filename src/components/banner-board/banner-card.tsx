@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import html2canvas from "html2canvas";
 import { saveAs } from "file-saver";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,7 +47,8 @@ export function BannerCard({
   onRemove,
 }: BannerCardProps) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(!banner.url.startsWith('data:'));
+  const isDataUrl = !banner.url.startsWith('http');
+  const [isLoading, setIsLoading] = useState(!isDataUrl);
   const [isError, setIsError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = useState(banner.id);
@@ -69,7 +70,9 @@ export function BannerCard({
   
   const handleReload = () => {
     setIsError(false);
-    setIsLoading(true);
+    if (!isDataUrl) {
+      setIsLoading(true);
+    }
     setIframeKey(oldKey => oldKey + '-reload');
   };
 
@@ -107,6 +110,21 @@ export function BannerCard({
     setIsError(true);
   }
   
+  const iframeProps = {
+    key: iframeKey,
+    width: banner.width,
+    height: banner.height,
+    scrolling: 'no' as const,
+    className: cn(
+        "pointer-events-none border-0 transition-opacity",
+        (isLoading || isError) && "opacity-0"
+    ),
+    title: `Banner ${banner.width}x${banner.height}`,
+    onLoad: handleLoad,
+    onError: handleError,
+    sandbox: "allow-scripts allow-same-origin",
+  };
+
   return (
     <div
       ref={setNodeRef}
@@ -143,20 +161,11 @@ export function BannerCard({
             </Button>
           </div>
         )}
-        <iframe
-          key={iframeKey}
-          src={banner.url}
-          width={banner.width}
-          height={banner.height}
-          scrolling="no"
-          className={cn(
-            "pointer-events-none border-0 transition-opacity",
-            (isLoading || isError) && "opacity-0"
-          )}
-          title={`Banner ${banner.width}x${banner.height}`}
-          onLoad={handleLoad}
-          onError={handleError}
-        />
+        {isDataUrl ? (
+          <iframe {...iframeProps} srcDoc={banner.url} />
+        ) : (
+          <iframe {...iframeProps} src={banner.url} />
+        )}
       </div>
 
       <div className="absolute left-2 top-2 z-20">
@@ -200,13 +209,24 @@ export function BannerCard({
             <VisuallyHidden>
               <DialogTitle>Fullscreen Banner Preview</DialogTitle>
             </VisuallyHidden>
-            <iframe
-              src={banner.url}
-              className="border-0"
-              style={{ width: banner.width, height: banner.height }}
-              scrolling="no"
-              title="Fullscreen Banner"
-            />
+             {isDataUrl ? (
+                <iframe
+                    className="border-0"
+                    style={{ width: banner.width, height: banner.height }}
+                    scrolling="no"
+                    title="Fullscreen Banner"
+                    srcDoc={banner.url}
+                    sandbox="allow-scripts allow-same-origin"
+                />
+            ) : (
+                <iframe
+                    src={banner.url}
+                    className="border-0"
+                    style={{ width: banner.width, height: banner.height }}
+                    scrolling="no"
+                    title="Fullscreen Banner"
+                />
+            )}
           </DialogContent>
         </Dialog>
         <Tooltip>

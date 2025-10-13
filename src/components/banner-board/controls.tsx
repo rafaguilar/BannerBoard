@@ -327,21 +327,23 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       }
       console.log("HTML file found:", htmlFile.name);
       
-      const textFileExtensions = ['.html', '.htm', '.css', '.js', '.svg', '.xml'];
+      const rootPath = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
+
       const assets = new Map<string, { type: 'text' | 'binary', content: string | Uint8Array, mime: string }>();
 
       const filePromises: Promise<void>[] = [];
       
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('.DS_Store')) {
-          return;
+            console.log(`Skipping directory or meta file: ${zipEntry.name}`);
+            return;
         }
 
-        const isText = textFileExtensions.some(ext => zipEntry.name.toLowerCase().endsWith(ext));
+        const isText = zipEntry.name.match(/\.(html?|css|js|svg|xml|json)$/i);
         const outputType = isText ? "string" : "uint8array";
         
         const promise = zipEntry.async(outputType).then(content => {
-          console.log(`Processing file: ${zipEntry.name}`);
+          console.log(`Processing file: ${zipEntry.name}, MIME type: ${getMimeType(zipEntry.name)}`);
           assets.set(zipEntry.name, {
               type: isText ? 'text' : 'binary',
               content: content as any,
@@ -355,48 +357,56 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
       const dataUrls = new Map<string, string>();
       for (const [path, asset] of assets.entries()) {
-        if (asset.type === 'binary') {
-            let base64 = '';
-            const bytes = asset.content as Uint8Array;
-            for (let i = 0; i < bytes.byteLength; i++) {
-                base64 += String.fromCharCode(bytes[i]);
-            }
-            dataUrls.set(path, `data:${asset.mime};base64,${btoa(base64)}`);
-        }
+          if (asset.type === 'binary') {
+              let base64 = '';
+              const bytes = asset.content as Uint8Array;
+              for (let i = 0; i < bytes.byteLength; i++) {
+                  base64 += String.fromCharCode(bytes[i]);
+              }
+              dataUrls.set(path, `data:${asset.mime};base64,${btoa(base64)}`);
+          }
       }
 
       const substitutedTextContent = new Map<string, string>();
-      for (const [path, asset] of assets.entries()) {
-         if (asset.type === 'text') {
-            let content = asset.content as string;
-            // Replace references to other assets
-            for (const [assetPathToReplace, dataUrl] of dataUrls.entries()) {
-              const searchPath = assetPathToReplace.substring(assetPathToReplace.lastIndexOf('/') + 1);
-              const regex = new RegExp(`(["'])${escapeRegExp(searchPath)}\\1`, 'g');
-              if (regex.test(content)) {
-                console.log(`In ${path}, replaced path for: ${searchPath}`);
-                content = content.replace(regex, `$1${dataUrl}$1`);
-              }
-            }
-            substitutedTextContent.set(path, content);
-         }
+      for(const [path, asset] of assets.entries()) {
+          if (asset.type === 'text') {
+              substitutedTextContent.set(path, asset.content as string);
+          }
       }
       
+      // Multi-pass substitution
+      for (let i = 0; i < 3; i++) { // Run a few passes to handle nested dependencies
+          for (const [filePath, fileContent] of substitutedTextContent.entries()) {
+              let newContent = fileContent;
+              for (const [assetPath, dataUrl] of dataUrls.entries()) {
+                  const searchPath = assetPath.replace(rootPath, '');
+                  const regex = new RegExp(`(["'\\(])(${escapeRegExp(searchPath)})(["'\\)])`, 'g');
+                   if (regex.test(newContent)) {
+                       console.log(`In ${filePath}, pass ${i+1}, replaced path for: ${searchPath}`);
+                       newContent = newContent.replace(regex, `$1${dataUrl}$3`);
+                   }
+              }
+              substitutedTextContent.set(filePath, newContent);
+          }
+      }
+
       for (const [path, content] of substitutedTextContent.entries()) {
         const mime = getMimeType(path);
         dataUrls.set(path, `data:${mime};charset=utf-8,${encodeURIComponent(content)}`);
       }
 
-      const finalHtmlDataUrl = dataUrls.get(htmlFile.name);
-
-      if (!finalHtmlDataUrl) {
-        throw new Error("Failed to generate final HTML data URL.");
+      let finalHtmlContent = substitutedTextContent.get(htmlFile.name);
+      if (!finalHtmlContent) {
+          throw new Error("Could not retrieve HTML content after processing.");
       }
-      
-      console.log("Generated data URL for banner.");
+
+      console.log("Original HTML content length:", (assets.get(htmlFile.name)?.content as string).length);
+      console.log("Final HTML content length:", finalHtmlContent.length);
+
+      console.log("Generated final HTML for srcdoc.");
       
       onAddBanners([{
-        url: finalHtmlDataUrl,
+        url: finalHtmlContent, // Pass the HTML string itself
         width,
         height,
         round,
@@ -696,6 +706,7 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
 
 
 
