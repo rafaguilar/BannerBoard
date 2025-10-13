@@ -321,11 +321,14 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             }
             
             let finalHtmlContent = await htmlFile.async("string");
-            const domParser = new DOMParser();
-            const doc = domParser.parseFromString(finalHtmlContent, 'text/html');
+            const doc = new DOMParser().parseFromString(finalHtmlContent, 'text/html');
 
             const assetMap = new Map<string, string>();
-            const textContentMap = new Map<string, string>();
+            let mainJsContent = '';
+            let styleCssContent = '';
+            let mainJsPath = '';
+            let styleCssPath = '';
+
 
             for (const fullPath in zip.files) {
                 if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
@@ -334,32 +337,35 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 const simpleName = fullPath.split('/').pop()!;
                 const mime = getMimeType(simpleName);
                 
-                if (mime.startsWith('text/') || mime === 'application/javascript' || mime === 'image/svg+xml') {
-                    const content = await zipEntry.async("string");
-                    textContentMap.set(simpleName, content);
-                } else {
+                if (simpleName.endsWith('.js')) {
+                    mainJsContent = await zipEntry.async("string");
+                    mainJsPath = simpleName;
+                } else if (simpleName.endsWith('style.css')) {
+                    styleCssContent = await zipEntry.async("string");
+                    styleCssPath = simpleName;
+                } else if (mime.startsWith('image/svg')) {
+                    const base64Content = await zipEntry.async("base64");
+                    assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
+                }
+                 else {
                     const base64Content = await zipEntry.async("base64");
                     assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
                 }
             }
-
-            let cssContent = textContentMap.get('style.css') || '';
+            
             for (const [assetName, dataUrl] of assetMap.entries()) {
-                const regex = new RegExp(`url\\(["']?${assetName}["']?\\)`, 'g');
-                cssContent = cssContent.replace(regex, `url(${dataUrl})`);
+                const regex = new RegExp(assetName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
+                styleCssContent = styleCssContent.replace(regex, dataUrl);
             }
 
             const styleElement = doc.createElement('style');
-            styleElement.textContent = cssContent;
-            doc.head.querySelector('link[href="style.css"]')?.remove();
+            styleElement.textContent = styleCssContent;
+            doc.head.querySelector(`link[href="${styleCssPath}"]`)?.remove();
             doc.head.appendChild(styleElement);
 
 
-            const mainJsContent = textContentMap.get('main.js') || '';
-            
             const patcherScript = `
                 window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
-
                 const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
                 Object.defineProperty(Image.prototype, 'src', {
                     set: function(value) {
@@ -375,9 +381,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
             const patcherScriptElement = doc.createElement('script');
             patcherScriptElement.textContent = patcherScript;
-            doc.head.appendChild(patcherScriptElement);
+            doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
 
-            doc.querySelector('script[src="main.js"]')?.remove();
+            doc.querySelector(`script[src="${mainJsPath}"]`)?.remove();
             const mainScriptElement = doc.createElement('script');
             mainScriptElement.textContent = mainJsContent;
             doc.body.appendChild(mainScriptElement);
