@@ -50,7 +50,7 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
   const isHtmlContent = banner.url.startsWith("<!DOCTYPE html>") || banner.url.startsWith("<html>");
   
-  const [isLoading, setIsLoading] = React.useState(isDataUrl && isHtmlContent);
+  const [isLoading, setIsLoading] = React.useState(isDataUrl || isHtmlContent);
   const [isError, setIsError] = React.useState(false);
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
@@ -72,7 +72,7 @@ export function BannerCard({
   
   const handleReload = () => {
     setIsError(false);
-    if (isDataUrl) {
+    if (isDataUrl || isHtmlContent) {
       setIsLoading(true);
     }
     setIframeKey(oldKey => oldKey + '-reload');
@@ -113,18 +113,16 @@ export function BannerCard({
   }
   
   const iframeProps = {
-    key: iframeKey,
     width: banner.width,
     height: banner.height,
     scrolling: "no" as const,
     className: cn(
         "pointer-events-none border-0 transition-opacity",
-        isLoading && "opacity-0"
+        (isLoading || isError) && "opacity-0"
     ),
     title: `Banner ${banner.width}x${banner.height}`,
     onLoad: handleLoad,
     onError: handleError,
-    sandbox: "allow-scripts allow-same-origin"
   };
 
   return (
@@ -165,9 +163,9 @@ export function BannerCard({
         )}
         
         {isHtmlContent ? (
-           <iframe {...iframeProps} srcDoc={banner.url} />
+           <iframe {...iframeProps} key={iframeKey} srcDoc={banner.url} sandbox="allow-scripts allow-same-origin" />
         ) : (
-             <iframe {...iframeProps} src={banner.url} />
+             <iframe {...iframeProps} key={iframeKey} src={banner.url} />
         )}
       </div>
 
