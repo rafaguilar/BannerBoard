@@ -68,31 +68,19 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
 
   const handleReload = () => {
-    if (iframeRef.current && !isDataUrl) {
+    if (iframeRef.current) {
       console.log(`Reloading banner: ${banner.id}`);
       setIsLoading(true);
       setIsError(false);
+      // Using a key to force re-mount is cleaner, but changing src also works.
+      // Set to blank first to ensure it fully reloads from the new src.
       iframeRef.current.src = "about:blank";
       setTimeout(() => {
         if(iframeRef.current) {
-          console.log(`Setting src for banner ${banner.id} to ${banner.url}`);
+          console.log(`Setting src for banner ${banner.id}`);
           iframeRef.current.src = banner.url;
         }
-      }, 100);
-    } else if (isDataUrl) {
-        console.log(`Reloading data URL banner: ${banner.id}`);
-        setIsLoading(true);
-        setIsError(false);
-        if (iframeRef.current) {
-            iframeRef.current.src = "about:blank";
-            setTimeout(() => {
-                if(iframeRef.current) {
-                    iframeRef.current.src = banner.url;
-                    // For data URLs, loading state might need to be manually turned off
-                    setTimeout(() => setIsLoading(false), 100);
-                }
-            }, 100);
-        }
+      }, 50);
     }
   };
 
@@ -107,26 +95,27 @@ export function BannerCard({
             const iframe = doc.querySelector('iframe');
             if (iframe) {
               try {
-                 if (isDataUrl) {
-                     // For data URLs, we can access the content directly
-                     const iframeContent = iframeRef.current?.contentDocument?.body.innerHTML;
-                     if(iframeContent) {
-                         const newDiv = doc.createElement('div');
-                         newDiv.style.width = `${banner.width}px`;
-                         newDiv.style.height = `${banner.height}px`;
-                         newDiv.innerHTML = iframeContent;
-                         iframe.replaceWith(newDiv);
-                     }
-                     return;
-                 };
-                const iframeContent = iframe.contentDocument?.body.innerHTML;
-                if(iframeContent) {
+                // This approach has limitations due to cross-origin policies
+                // For same-origin or data URLs, it might work.
+                const iframeContentDoc = iframe.contentDocument;
+                 if (iframeContentDoc) {
                     const newDiv = doc.createElement('div');
                     newDiv.style.width = `${banner.width}px`;
                     newDiv.style.height = `${banner.height}px`;
-                    newDiv.innerHTML = iframeContent;
+                    newDiv.style.overflow = 'hidden';
+                    newDiv.innerHTML = iframeContentDoc.body.innerHTML;
+                    // Attempt to copy styles
+                     const style = doc.createElement('style');
+                     style.textContent = Array.from(iframeContentDoc.styleSheets).map(s => {
+                       try {
+                         return Array.from(s.cssRules).map(r => r.cssText).join('\n');
+                       } catch (e) {
+                         return '';
+                       }
+                     }).join('\n');
+                     newDiv.appendChild(style);
                     iframe.replaceWith(newDiv);
-                }
+                 }
               } catch (e) {
                  console.error("Could not access iframe content for screenshot:", e);
               }
@@ -149,19 +138,12 @@ export function BannerCard({
       }
     }
   };
-
+  
   useEffect(() => {
-    // Data URLs load synchronously, so we can set loading to false.
-    if (isDataUrl) {
-      console.log(`Banner ${banner.id} is a data URL. Setting isLoading to false.`);
-      setIsLoading(false);
-      setIsError(false);
-    }
-    
     const iframe = iframeRef.current;
     if (!iframe) return;
     
-    console.log(`Setting up listeners for banner: ${banner.id}, url: ${banner.url.substring(0,50)}...`);
+    console.log(`Setting up listeners for banner: ${banner.id}`);
 
     const handleLoad = () => {
       console.log(`Banner ${banner.id} finished loading.`);
@@ -176,7 +158,7 @@ export function BannerCard({
     };
 
     const timeoutId = setTimeout(() => {
-        if (isLoading && !isDataUrl) {
+        if (isLoading && !isDataUrl) { // Only timeout remote URLs
             console.warn(`Banner ${banner.id} timed out.`);
             handleError(new ErrorEvent('timeout', { message: 'Banner loading timed out' }));
         }
@@ -188,19 +170,12 @@ export function BannerCard({
     return () => {
       console.log(`Cleaning up listeners for banner: ${banner.id}`);
       clearTimeout(timeoutId);
-      iframe.removeEventListener("load", handleLoad);
-      iframe.removeEventListener("error", handleError);
+      if (iframe) {
+        iframe.removeEventListener("load", handleLoad);
+        iframe.removeEventListener("error", handleError);
+      }
     };
-    // isDataUrl is added to dependencies to re-evaluate if the banner url changes from remote to data
   }, [banner.id, banner.url, isLoading, isDataUrl]);
-  
-  useEffect(() => {
-    // If the banner URL is a data URL, ensure the iframe src is set.
-    // This helps with initial render and re-renders.
-    if (isDataUrl && iframeRef.current && iframeRef.current.src !== banner.url) {
-      iframeRef.current.src = banner.url;
-    }
-  }, [banner.url, isDataUrl]);
 
 
   return (
@@ -240,8 +215,9 @@ export function BannerCard({
           </div>
         )}
         <iframe
+          key={banner.id}
           ref={iframeRef}
-          src={isDataUrl ? undefined : banner.url}
+          src={banner.url}
           width={banner.width}
           height={banner.height}
           scrolling="no"
@@ -320,5 +296,3 @@ export function BannerCard({
     </div>
   );
 }
-
-    
