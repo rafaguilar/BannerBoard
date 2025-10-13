@@ -327,81 +327,72 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       }
       console.log("HTML file found:", htmlFile.name);
       
-      const rootFolder = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
-      
-      const assetDataUrls = new Map<string, string>();
-      const filePromises: Promise<void>[] = [];
-      const textFileExtensions = ['.html', '.htm', '.css', '.js', '.svg'];
-      const textFileContents = new Map<string, string>();
+      const textFileExtensions = ['.html', '.htm', '.css', '.js', '.svg', '.xml'];
+      const assets = new Map<string, { type: 'text' | 'binary', content: string | Uint8Array, mime: string }>();
 
-      // 1st pass: Create data URLs for all assets
+      const filePromises: Promise<void>[] = [];
+      
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('.DS_Store')) {
           return;
         }
 
         const isText = textFileExtensions.some(ext => zipEntry.name.toLowerCase().endsWith(ext));
+        const outputType = isText ? "string" : "uint8array";
         
-        const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
-          const mime = getMimeType(zipEntry.name);
-          console.log(`Processing file: ${zipEntry.name}, MIME type: ${mime}`);
-          if (isText) {
-            textFileContents.set(zipEntry.name, content as string);
-          } else {
-            assetDataUrls.set(zipEntry.name, `data:${mime};base64,${content}`);
-          }
+        const promise = zipEntry.async(outputType).then(content => {
+          console.log(`Processing file: ${zipEntry.name}`);
+          assets.set(zipEntry.name, {
+              type: isText ? 'text' : 'binary',
+              content: content as any,
+              mime: getMimeType(zipEntry.name),
+          });
         });
         filePromises.push(promise);
       });
       
       await Promise.all(filePromises);
 
-      // 2nd pass: Substitute paths in text files
-      for (const [path, content] of textFileContents.entries()) {
-        let finalContent = content;
-        for (const [assetPathToReplace, dataUrl] of assetDataUrls.entries()) {
-          const searchPath = rootFolder ? assetPathToReplace.substring(rootFolder.length) : assetPathToReplace;
-          const regex = new RegExp(`(["'])(?!data:|https?:|\\/\\/)${escapeRegExp(searchPath)}\\1`, 'g');
-          finalContent = finalContent.replace(regex, `$1${dataUrl}$1`);
+      const dataUrls = new Map<string, string>();
+      for (const [path, asset] of assets.entries()) {
+        if (asset.type === 'binary') {
+            let base64 = '';
+            const bytes = asset.content as Uint8Array;
+            for (let i = 0; i < bytes.byteLength; i++) {
+                base64 += String.fromCharCode(bytes[i]);
+            }
+            dataUrls.set(path, `data:${asset.mime};base64,${btoa(base64)}`);
         }
-        
-        // Also replace paths to other text files
-        for (const [textAssetPathToReplace] of textFileContents.entries()) {
-           if (path === textAssetPathToReplace) continue;
-           const searchPath = rootFolder ? textAssetPathToReplace.substring(rootFolder.length) : textAssetPathToReplace;
-           const regex = new RegExp(`(["'])(?!data:|https?:|\\/\\/)${escapeRegExp(searchPath)}\\1`, 'g');
-           if (regex.test(finalContent)) {
-             console.log(`Found reference to ${searchPath} in ${path}, but will be replaced later.`);
-           }
-        }
-        
-        textFileContents.set(path, finalContent);
       }
 
-      // 3rd pass: Create final data URLs for all text files
-      for (const [path, content] of textFileContents.entries()) {
-        let finalContent = content;
-        // In this pass, we replace text file references with their eventual data URLs
-        for (const [otherTextPath, otherTextContent] of textFileContents.entries()) {
-            if (path === otherTextPath) continue;
-            let currentSubstitutedContent = textFileContents.get(otherTextPath)!;
-            const finalSubstitutedDataUrl = `data:${getMimeType(otherTextPath)};charset=utf-8,${encodeURIComponent(currentSubstitutedContent)}`;
-            
-            const searchPath = rootFolder ? otherTextPath.substring(rootFolder.length) : otherTextPath;
-            const regex = new RegExp(`(["'])(?!data:|https?:|\\/\\/)${escapeRegExp(searchPath)}\\1`, 'g');
-            finalContent = finalContent.replace(regex, `$1${finalSubstitutedDataUrl}$1`);
-        }
-        
-        const mime = getMimeType(path);
-        assetDataUrls.set(path, `data:${mime};charset=utf-8,${encodeURIComponent(finalContent)}`);
+      const substitutedTextContent = new Map<string, string>();
+      for (const [path, asset] of assets.entries()) {
+         if (asset.type === 'text') {
+            let content = asset.content as string;
+            // Replace references to other assets
+            for (const [assetPathToReplace, dataUrl] of dataUrls.entries()) {
+              const searchPath = assetPathToReplace.substring(assetPathToReplace.lastIndexOf('/') + 1);
+              const regex = new RegExp(`(["'])${escapeRegExp(searchPath)}\\1`, 'g');
+              if (regex.test(content)) {
+                console.log(`In ${path}, replaced path for: ${searchPath}`);
+                content = content.replace(regex, `$1${dataUrl}$1`);
+              }
+            }
+            substitutedTextContent.set(path, content);
+         }
       }
       
-      const finalHtmlDataUrl = assetDataUrls.get(htmlFile.name);
+      for (const [path, content] of substitutedTextContent.entries()) {
+        const mime = getMimeType(path);
+        dataUrls.set(path, `data:${mime};charset=utf-8,${encodeURIComponent(content)}`);
+      }
+
+      const finalHtmlDataUrl = dataUrls.get(htmlFile.name);
 
       if (!finalHtmlDataUrl) {
         throw new Error("Failed to generate final HTML data URL.");
       }
-
+      
       console.log("Generated data URL for banner.");
       
       onAddBanners([{
@@ -428,7 +419,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     e.target.value = '';
   };
   
-
   return (
     <Form {...form}>
       <form className="space-y-4 p-4">
@@ -706,5 +696,6 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
 
 
