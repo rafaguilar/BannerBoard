@@ -50,7 +50,7 @@ export function BannerCard({
   const isDataUrl = banner.url.startsWith('data:');
   const isHtmlContent = banner.url.startsWith("<!DOCTYPE html>") || banner.url.startsWith("<html>");
   
-  const [isLoading, setIsLoading] = React.useState(isDataUrl || isHtmlContent);
+  const [isLoading, setIsLoading] = React.useState(isHtmlContent);
   const [isError, setIsError] = React.useState(false);
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
@@ -250,3 +250,5 @@ export function BannerCard({
     </div>
   );
 }
+
+    
