@@ -322,67 +322,44 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         throw new Error("No index.html or ad.html file found in the zip archive.");
       }
 
-      const assetDataUrls: Map<string, string> = new Map();
-      const assetPromises: Promise<void>[] = [];
-      const textFileContents: Map<string, string> = new Map();
-      const imageFileNames: string[] = [];
+      // Stage 1: Create a map of all file paths to their data URLs.
+      const assetDataUrlMap: Map<string, string> = new Map();
+      const filePromises: Promise<void>[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
 
         const isText = zipEntry.name.match(/\.(css|js|svg|html|htm|json|xml)$/i);
         const outputType = isText ? "string" : "base64";
-        
+
         const promise = zipEntry.async(outputType).then(content => {
-            const mime = getMimeType(zipEntry.name);
-            const fileName = zipEntry.name.split('/').pop()!;
-            
-            if (isText) {
-                textFileContents.set(relativePath, content as string);
-                assetDataUrls.set(fileName, `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`);
-            } else {
-                assetDataUrls.set(fileName, `data:${mime};base64,${content}`);
-            }
-            if (zipEntry.name.match(/\.(png|jpg|jpeg|gif|svg)$/i)) {
-              imageFileNames.push(fileName);
-            }
+          const mime = getMimeType(zipEntry.name);
+          let dataUrl;
+          if (isText) {
+            dataUrl = `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`;
+          } else {
+            dataUrl = `data:${mime};base64,${content}`;
+          }
+          // Use the full relative path as the key
+          assetDataUrlMap.set(relativePath, dataUrl);
         });
-        assetPromises.push(promise);
+        filePromises.push(promise);
       });
+
+      await Promise.all(filePromises);
       
-      await Promise.all(assetPromises);
-      
-      let mainJsContent = textFileContents.get(Object.keys(textFileContents).find(p => p.endsWith('main.js')) || '');
+      // Stage 2: Get the raw content of all text files.
+      let finalHtmlContent = await htmlFile.async("string");
 
-      if(mainJsContent) {
-        // Replace image array with data URLs
-        mainJsContent = mainJsContent.replace(/_imageArray\s*=\s*new\s*Array\(([^)]+)\)/, (match, imageList) => {
-          const images = imageList.split(',').map((img: string) => img.trim().replace(/['"]/g, ''));
-          const newDataUrls = images.map((img: string) => `'${assetDataUrls.get(img) || img}'`);
-          return `_imageArray = new Array(${newDataUrls.join(',')})`;
-        });
-        
-        // Since data URLs load instantly, bypass the preloader and call loadCSS directly.
-        mainJsContent = mainJsContent.replace(
-          'this.addEventListener("DOMContentLoaded", preloadImages);',
-          'this.addEventListener("DOMContentLoaded", function() { loadCSS(); });'
-        );
-        const mainJsPath = Object.keys(textFileContents).find(p => p.endsWith('main.js'));
-        if(mainJsPath) {
-          textFileContents.set(mainJsPath, mainJsContent);
-        }
-      }
-
-      let finalHtmlContent = textFileContents.get(htmlFile.name)!;
-
-      // Replace script and link tags in HTML
-      for(const [path, content] of textFileContents.entries()){
-        const fileName = path.split('/').pop()!;
-        const dataUrl = `data:${getMimeType(fileName)};charset=utf-8,${encodeURIComponent(content)}`;
-        const regex = new RegExp(`(src|href)=["'](./)?${fileName}["']`, 'g');
+      // Stage 3: Replace all asset references in the HTML content
+      assetDataUrlMap.forEach((dataUrl, path) => {
+        // Create regex to find src="path", href="path", src='path', etc.
+        // It looks for the path, which can be relative.
+        const pathParts = path.split('/');
+        const fileName = pathParts[pathParts.length - 1];
+        const regex = new RegExp(`(src|href)=["'](./)?${fileName}["']`, "g");
         finalHtmlContent = finalHtmlContent.replace(regex, `$1="${dataUrl}"`);
-      }
-
+      });
 
       onAddBanners([{
         url: finalHtmlContent,
