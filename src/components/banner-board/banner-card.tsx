@@ -47,7 +47,7 @@ export function BannerCard({
   onRemove,
 }: BannerCardProps) {
   const { toast } = useToast();
-  const isDataUrl = !banner.url.startsWith('http');
+  const isDataUrl = banner.url.startsWith('data:text/html');
   const [isLoading, setIsLoading] = useState(!isDataUrl);
   const [isError, setIsError] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
@@ -121,7 +121,6 @@ export function BannerCard({
     title: `Banner ${banner.width}x${banner.height}`,
     onLoad: handleLoad,
     onError: handleError,
-    sandbox: "allow-scripts allow-same-origin",
   };
 
   return (
@@ -161,7 +160,7 @@ export function BannerCard({
           </div>
         )}
         {isDataUrl ? (
-          <iframe key={iframeKey} {...iframeProps} srcDoc={banner.url} />
+          <iframe key={iframeKey} {...iframeProps} srcDoc={banner.url} sandbox="allow-scripts allow-same-origin" />
         ) : (
           <iframe key={iframeKey} {...iframeProps} src={banner.url} />
         )}
@@ -210,6 +209,7 @@ export function BannerCard({
             </VisuallyHidden>
              {isDataUrl ? (
                 <iframe
+                    key={iframeKey}
                     className="border-0"
                     style={{ width: banner.width, height: banner.height }}
                     scrolling="no"

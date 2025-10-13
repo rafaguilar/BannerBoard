@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState } from "react";
@@ -52,6 +51,7 @@ import { useToast } from "@/hooks/use-toast";
 import { detectBannerAnomalies } from "@/ai/flows/ai-anomaly-detection";
 import html2canvas from "html2canvas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { VisuallyHidden } from "@/components/ui/visually-hidden";
 
 
 // --- Banner Input Panel ---
@@ -697,14 +697,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    
-
-    
-
-
-
-
-
-
-    
