@@ -299,12 +299,8 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("--- Starting HTML5 Zip Processing ---");
     const files = e.target.files;
-    if (!files || files.length === 0) {
-      console.log("No files selected.");
-      return;
-    }
+    if (!files || files.length === 0) return;
     const file = files[0];
     
     if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
@@ -325,65 +321,52 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       if (!htmlFile) {
         throw new Error("No index.html or ad.html file found in the zip archive.");
       }
-      console.log(`Found HTML file: ${htmlFile.name}`);
-
 
       const assetDataUrlMap = new Map<string, string>();
-      const filePromises: Promise<void>[] = [];
-      const textFileContents = new Map<string, string>();
+      const fileReadPromises: Promise<any>[] = [];
 
-      console.log("Step 1: Processing all zip assets into data URLs and text content...");
       zip.forEach((relativePath, zipEntry) => {
         if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
 
+        const simpleFileName = zipEntry.name.split('/').pop()!;
         const isText = zipEntry.name.match(/\.(css|js|svg|html|htm|json|xml)$/i);
-        
-        const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
-          const simpleFileName = relativePath.split('/').pop()!;
-          const mime = getMimeType(zipEntry.name);
+        const outputType = isText ? "string" : "base64";
 
+        const promise = zipEntry.async(outputType).then(content => {
+          const mime = getMimeType(zipEntry.name);
+          let dataUrl;
           if (isText) {
-            textFileContents.set(relativePath, content as string);
-            assetDataUrlMap.set(simpleFileName, `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`);
+            dataUrl = `data:${mime};charset=utf-8,${encodeURIComponent(content as string)}`;
           } else {
-            assetDataUrlMap.set(simpleFileName, `data:${mime};base64,${content}`);
+            dataUrl = `data:${mime};base64,${content}`;
           }
+          assetDataUrlMap.set(simpleFileName, dataUrl);
         });
-        filePromises.push(promise);
+        fileReadPromises.push(promise);
       });
 
-      await Promise.all(filePromises);
-      console.log("Step 1 Complete. Asset Data URL Map:", assetDataUrlMap);
-      console.log("Text File Contents Map:", textFileContents);
+      await Promise.all(fileReadPromises);
 
+      let finalHtmlContent = await htmlFile.async("string");
 
-      console.log("Step 2: Performing replacements in text files...");
-      const processedTextContents = new Map<string, string>();
-      for (const [path, content] of textFileContents.entries()) {
-        let processedContent = content;
-        for (const [assetName, dataUrl] of assetDataUrlMap.entries()) {
-           // Use a regex to avoid replacing parts of words or other data URLs.
-           // Looks for the asset name inside quotes or parentheses.
-           const regex = new RegExp(`(["'\\(])(./)?${assetName}(["'\\)])`, "g");
-           processedContent = processedContent.replace(regex, `$1${dataUrl}$3`);
-        }
-        processedTextContents.set(path, processedContent);
-        if (path.endsWith('main.js')) {
-            console.log("--- main.js Before Replacements ---");
-            console.log(content);
-            console.log("--- main.js After Replacements ---");
-            console.log(processedContent);
-        }
+      for (const [fileName, dataUrl] of assetDataUrlMap.entries()) {
+        // Regex to find the filename in src/href attributes, or in url() calls in CSS
+        // It looks for the filename surrounded by quotes or parentheses
+        const regex = new RegExp(`(["'\\(])(./)?${fileName}(["'\\)])`, "g");
+        finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$3`);
       }
-      console.log("Step 2 Complete. All text files have been processed.");
+       
+      zip.file(/\.(js|css)$/i).forEach(async (file) => {
+        let content = await file.async("string");
+         for (const [fileName, dataUrl] of assetDataUrlMap.entries()) {
+            const regex = new RegExp(`(["'\\(])(./)?${fileName}(["'\\)])`, "g");
+            content = content.replace(regex, `$1${dataUrl}$3`);
+         }
+         const finalDataUrl = `data:${getMimeType(file.name)};charset=utf-8,${encodeURIComponent(content)}`;
+         const htmlRegex = new RegExp(`(<(?:link|script).*(?:href|src)=["'])(./)?${file.name}(["'].*>)`, "g");
+         finalHtmlContent = finalHtmlContent.replace(htmlRegex, `$1${finalDataUrl}$3`);
+      });
 
-      let finalHtmlContent = processedTextContents.get(htmlFile.name);
-
-      if (!finalHtmlContent) {
-          throw new Error("HTML content could not be processed.");
-      }
-
-      console.log("Step 3: Final bundled HTML content generated.");
 
       onAddBanners([{
         url: finalHtmlContent,
