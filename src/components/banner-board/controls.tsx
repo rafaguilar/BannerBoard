@@ -326,9 +326,8 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             const assetMap = new Map<string, string>();
             let mainJsContent = '';
             let styleCssContent = '';
-            let mainJsPath = '';
-            let styleCssPath = '';
-
+            
+            const assetPromises: Promise<void>[] = [];
 
             for (const fullPath in zip.files) {
                 if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
@@ -337,56 +336,67 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 const simpleName = fullPath.split('/').pop()!;
                 const mime = getMimeType(simpleName);
                 
-                if (simpleName.endsWith('.js')) {
-                    mainJsContent = await zipEntry.async("string");
-                    mainJsPath = simpleName;
-                } else if (simpleName.endsWith('style.css')) {
-                    styleCssContent = await zipEntry.async("string");
-                    styleCssPath = simpleName;
-                } else if (mime.startsWith('image/svg')) {
-                    const base64Content = await zipEntry.async("base64");
-                    assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
-                }
-                 else {
-                    const base64Content = await zipEntry.async("base64");
-                    assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
-                }
+                const promise = (async () => {
+                  if (simpleName.endsWith('.js')) {
+                      mainJsContent = await zipEntry.async("string");
+                  } else if (simpleName.endsWith('.css')) {
+                      styleCssContent = await zipEntry.async("string");
+                  } else {
+                      const base64Content = await zipEntry.async("base64");
+                      if (mime === 'image/svg+xml') {
+                        assetMap.set(simpleName, `data:image/svg+xml;base64,${base64Content}`);
+                      } else {
+                        assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
+                      }
+                  }
+                })();
+                assetPromises.push(promise);
+            }
+            await Promise.all(assetPromises);
+
+            for (const [assetName, dataUrl] of assetMap.entries()) {
+                 const regex = new RegExp(`url\\s*\\(\\s*['"]?${assetName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}['"]?\\s*\\)`, 'g');
+                 styleCssContent = styleCssContent.replace(regex, `url(${dataUrl})`);
             }
             
-            for (const [assetName, dataUrl] of assetMap.entries()) {
-                const regex = new RegExp(assetName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-                styleCssContent = styleCssContent.replace(regex, dataUrl);
-            }
-
+            doc.querySelector('link[rel="stylesheet"]')?.remove();
             const styleElement = doc.createElement('style');
             styleElement.textContent = styleCssContent;
-            doc.head.querySelector(`link[href="${styleCssPath}"]`)?.remove();
             doc.head.appendChild(styleElement);
-
-
+            
             const patcherScript = `
                 window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
-                const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
-                Object.defineProperty(Image.prototype, 'src', {
-                    set: function(value) {
-                        const assetName = value.split('/').pop();
-                        if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                          originalImageSrcSetter.call(this, window.ASSET_MAP[assetName]);
-                        } else {
-                          originalImageSrcSetter.call(this, value);
+                if (window.ASSET_MAP) {
+                    const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+                    Object.defineProperty(Image.prototype, 'src', {
+                        set: function(value) {
+                            const assetName = value.split('/').pop();
+                            if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                              originalImageSrcSetter.call(this, window.ASSET_MAP[assetName]);
+                            } else {
+                              originalImageSrcSetter.call(this, value);
+                            }
                         }
-                    }
-                });
+                    });
+                }
             `;
 
             const patcherScriptElement = doc.createElement('script');
             patcherScriptElement.textContent = patcherScript;
             doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
 
-            doc.querySelector(`script[src="${mainJsPath}"]`)?.remove();
+            doc.querySelector('script[src="main.js"]')?.remove();
             const mainScriptElement = doc.createElement('script');
             mainScriptElement.textContent = mainJsContent;
             doc.body.appendChild(mainScriptElement);
+
+            const cssLoadMatch = mainJsContent.match(/css\.addEventListener\("load",\s*([^,)]+)/);
+            if (cssLoadMatch && cssLoadMatch[1]) {
+                const functionToCall = cssLoadMatch[1].trim();
+                const triggerScriptElement = doc.createElement('script');
+                triggerScriptElement.textContent = `window.addEventListener('DOMContentLoaded', () => { setTimeout(() => ${functionToCall}(), 0); });`;
+                doc.body.appendChild(triggerScriptElement);
+            }
 
             const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
             
@@ -459,6 +469,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         </Form>
     );
 }
+
 
 // --- AI Anomaly Panel ---
 
@@ -678,7 +689,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    
 
     
