@@ -316,81 +316,65 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         if (!htmlFile) {
             throw new Error("No index.html or ad.html file found in the zip archive.");
         }
-
+        
         const assetMap = new Map<string, string>();
         const contentMap = new Map<string, string>();
         
-        // 1. Process all assets into data URLs and raw text content
-        for (const relativePath in zip.files) {
-            const zipEntry = zip.files[relativePath];
+        for (const fullPath in zip.files) {
+            const zipEntry = zip.files[fullPath];
             if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
-
-            const simpleFileName = zipEntry.name.split('/').pop()!;
-            const mime = getMimeType(simpleFileName);
-            const isText = mime.startsWith('text/') || mime === 'application/javascript' || mime === 'image/svg+xml';
             
+            const simpleName = zipEntry.name.split('/').pop()!;
+            const mime = getMimeType(simpleName);
+            const isText = mime.startsWith('text/') || mime === 'application/javascript';
+
             if (isText) {
                 const content = await zipEntry.async("string");
-                contentMap.set(simpleFileName, content);
-                if (mime === 'image/svg+xml') {
-                    assetMap.set(simpleFileName, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`);
-                }
+                contentMap.set(simpleName, content);
             } else {
-                const base64Content = await zipEntry.async("base64");
-                assetMap.set(simpleFileName, `data:${mime};base64,${base64Content}`);
+                 const base64Content = await zipEntry.async("base64");
+                 assetMap.set(simpleName, `data:${mime};base64,${base64Content}`);
             }
         }
-
-        // 2. Perform replacements in CSS content
-        let cssContent = contentMap.get('style.css') || '';
-        for (const [assetName, dataUrl] of assetMap.entries()) {
-            // Regex to find url('assetName'), url("assetName"), or url(assetName)
-            const regex = new RegExp(`url\\s*\\(\\s*['"]?(${assetName})['"]?\\s*\\)`, 'g');
-            cssContent = cssContent.replace(regex, `url(${dataUrl})`);
-        }
-
-        // 3. Prepare JS content
-        let jsContent = contentMap.get('main.js') || '';
         
-        // Statically replace the loadCSS function to just call the next step
-        const loadCSSRegex = /function\s+loadCSS\s*\(\s*\)\s*\{[^}]+\}/;
-        const replacementFunc = "function loadCSS() { loadGSAP(); }";
-        if (loadCSSRegex.test(jsContent)) {
-            jsContent = jsContent.replace(loadCSSRegex, replacementFunc);
-        } else {
-            // As a fallback if regex fails, just append it, hoping it overrides the original.
-             jsContent += `\n;${replacementFunc};`;
+        let processedCSS = contentMap.get('style.css') || '';
+        for (const [assetName, dataUrl] of assetMap.entries()) {
+            const regex = new RegExp(`url\\s*\\(\\s*['"]?(${assetName})['"]?\\s*\\)`, 'g');
+            processedCSS = processedCSS.replace(regex, `url(${dataUrl})`);
         }
 
-        const monkeyPatch = `
-              const originalSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
-              const assetMap = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
-              if (originalSrcDescriptor) {
-                  Object.defineProperty(Image.prototype, 'src', {
-                    set: function(value) {
-                      const assetName = value.split('/').pop();
-                      if (assetMap && assetMap[assetName]) {
-                        originalSrcDescriptor.set.call(this, assetMap[assetName]);
-                      } else {
-                        originalSrcDescriptor.set.call(this, value);
-                      }
-                    }
-                  });
-              }
-        `;
-        jsContent = monkeyPatch + jsContent;
-
-        // 4. Assemble final HTML
         let finalHtmlContent = contentMap.get(htmlFile.name.split('/').pop()!)!;
 
-        // Inject the processed CSS directly
-        finalHtmlContent = finalHtmlContent.replace('</head>', `<style>${cssContent}</style></head>`);
+        // Inject the processed CSS directly into a <style> tag in the <head>
+        finalHtmlContent = finalHtmlContent.replace('</head>', `<style>${processedCSS}</style></head>`);
         // Remove the original CSS link
         finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, '');
 
-        // Replace the main.js script tag with the processed, embedded script
-        const jsDataUrl = `data:application/javascript;charset=utf-t,${encodeURIComponent(jsContent)}`;
-        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
+        let mainJsContent = contentMap.get('main.js') || '';
+
+        // Safely replace the loadCSS function
+        const loadCSSRegex = /function\s+loadCSS\s*\(\s*\)\s*\{[^}]+\}/;
+        if (loadCSSRegex.test(mainJsContent)) {
+            mainJsContent = mainJsContent.replace(loadCSSRegex, "function loadCSS() { loadGSAP(); }");
+        }
+        
+        // Create the asset map for JS
+        const jsAssetMap = `
+          <script>
+            window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
+            const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+            Object.defineProperty(Image.prototype, 'src', {
+              set: function(value) {
+                const assetName = value.split('/').pop();
+                const dataUrl = window.ASSET_MAP[assetName];
+                originalImageSrcSetter.call(this, dataUrl || value);
+              }
+            });
+          </script>
+        `;
+
+        // Inject the asset map and the main JS content
+        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `${jsAssetMap}<script>${mainJsContent}</script>`);
 
         onAddBanners([{
             url: finalHtmlContent,
@@ -680,5 +664,7 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
 
     
