@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState } from "react";
@@ -320,40 +319,58 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
         const assetMap = new Map<string, string>();
         const contentMap = new Map<string, string>();
-
+        
+        // 1. Process all assets into data URLs and raw text content
         for (const relativePath in zip.files) {
             const zipEntry = zip.files[relativePath];
             if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) continue;
-            
+
             const simpleFileName = zipEntry.name.split('/').pop()!;
             const mime = getMimeType(simpleFileName);
-            const isText = /\.(css|js|svg|html|htm|json|xml)$/i.test(simpleFileName);
-
+            const isText = mime.startsWith('text/') || mime === 'application/javascript' || mime === 'image/svg+xml';
+            
             if (isText) {
                 const content = await zipEntry.async("string");
                 contentMap.set(simpleFileName, content);
                 if (mime === 'image/svg+xml') {
-                    assetMap.set(simpleFileName, `data:${mime};charset=utf-8,${encodeURIComponent(content)}`);
-                } else {
-                    assetMap.set(simpleFileName, `data:${mime};base64,${btoa(unescape(encodeURIComponent(content)))}`);
+                    assetMap.set(simpleFileName, `data:image/svg+xml;charset=utf-8,${encodeURIComponent(content)}`);
                 }
             } else {
-                 const base64Content = await zipEntry.async("base64");
-                 assetMap.set(simpleFileName, `data:${mime};base64,${base64Content}`);
+                const base64Content = await zipEntry.async("base64");
+                assetMap.set(simpleFileName, `data:${mime};base64,${base64Content}`);
             }
         }
+
+        // 2. Perform replacements in CSS content
+        let cssContent = contentMap.get('style.css') || '';
+        for (const [assetName, dataUrl] of assetMap.entries()) {
+            // Regex to find url('assetName'), url("assetName"), or url(assetName)
+            const regex = new RegExp(`url\\s*\\(\\s*['"]?(${assetName})['"]?\\s*\\)`, 'g');
+            cssContent = cssContent.replace(regex, `url(${dataUrl})`);
+        }
+
+        // 3. Prepare JS content
+        let jsContent = contentMap.get('main.js') || '';
         
-        let finalHtmlContent = contentMap.get(htmlFile.name.split('/').pop()!)!;
+        // Statically replace the loadCSS function to just call the next step
+        const loadCSSRegex = /function\s+loadCSS\s*\(\s*\)\s*\{[^}]+\}/;
+        const replacementFunc = "function loadCSS() { loadGSAP(); }";
+        if (loadCSSRegex.test(jsContent)) {
+            jsContent = jsContent.replace(loadCSSRegex, replacementFunc);
+        } else {
+            // As a fallback if regex fails, just append it, hoping it overrides the original.
+             jsContent += `\n;${replacementFunc};`;
+        }
 
         const monkeyPatch = `
-              window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap))};
               const originalSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
+              const assetMap = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
               if (originalSrcDescriptor) {
                   Object.defineProperty(Image.prototype, 'src', {
                     set: function(value) {
                       const assetName = value.split('/').pop();
-                      if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                        originalSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
+                      if (assetMap && assetMap[assetName]) {
+                        originalSrcDescriptor.set.call(this, assetMap[assetName]);
                       } else {
                         originalSrcDescriptor.set.call(this, value);
                       }
@@ -361,36 +378,19 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                   });
               }
         `;
+        jsContent = monkeyPatch + jsContent;
 
-        const jsFile = Array.from(contentMap.keys()).find(k => k.endsWith('.js'));
-        if (jsFile) {
-            const originalJsContent = contentMap.get(jsFile)!;
-            const finalJsContent = monkeyPatch + originalJsContent;
-            const jsDataUrl = `data:application/javascript;charset=utf-8,${encodeURIComponent(finalJsContent)}`;
-            finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
-        } else {
-            finalHtmlContent = finalHtmlContent.replace('</head>', `<script>${monkeyPatch}</script></head>`);
-        }
+        // 4. Assemble final HTML
+        let finalHtmlContent = contentMap.get(htmlFile.name.split('/').pop()!)!;
 
-        const cssFile = Array.from(contentMap.keys()).find(k => k.endsWith('.css'));
-        if (cssFile) {
-            let cssContent = contentMap.get(cssFile)!;
-            for (const [assetName, dataUrl] of assetMap.entries()) {
-                if (assetName === cssFile) continue;
-                const regex = new RegExp(`(url\\s*\\(\\s*['"]?)(${assetName})(['"]?\\s*\\))`, 'g');
-                cssContent = cssContent.replace(regex, `$1${dataUrl}$3`);
-            }
-            const styleTag = `<style>${cssContent}</style>`;
-            finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, styleTag);
-        }
+        // Inject the processed CSS directly
+        finalHtmlContent = finalHtmlContent.replace('</head>', `<style>${cssContent}</style></head>`);
+        // Remove the original CSS link
+        finalHtmlContent = finalHtmlContent.replace(/<link[^>]+href=["']?style\.css["']?[^>]*>/, '');
 
-        finalHtmlContent = finalHtmlContent.replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/g, (match, src) => {
-            const assetName = src.split('/').pop()!;
-            if (assetMap.has(assetName)) {
-                return match.replace(src, assetMap.get(assetName)!);
-            }
-            return match;
-        });
+        // Replace the main.js script tag with the processed, embedded script
+        const jsDataUrl = `data:application/javascript;charset=utf-t,${encodeURIComponent(jsContent)}`;
+        finalHtmlContent = finalHtmlContent.replace(/<script[^>]+src=["']?main\.js["']?[^>]*><\/script>/, `<script src="${jsDataUrl}"></script>`);
 
         onAddBanners([{
             url: finalHtmlContent,
@@ -680,3 +680,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
