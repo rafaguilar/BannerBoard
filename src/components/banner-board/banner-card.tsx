@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef } from "react";
 import html2canvas from "html2canvas";
 import { saveAs } from "file-saver";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,7 +47,6 @@ export function BannerCard({
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const [iframeKey, setIframeKey] = useState(banner.id);
 
@@ -66,12 +65,10 @@ export function BannerCard({
     zIndex: isDragging ? 10 : undefined,
   };
   
-  const isDataUrl = banner.url.startsWith('data:');
-
   const handleReload = () => {
-    setIframeKey(oldKey => oldKey + '-reload');
-    setIsLoading(true);
     setIsError(false);
+    setIsLoading(true);
+    setIframeKey(oldKey => oldKey + '-reload');
   };
 
   const handleScreenshot = async () => {
@@ -98,54 +95,16 @@ export function BannerCard({
       }
     }
   };
+
+  const handleLoad = () => {
+    setIsLoading(false);
+  }
+
+  const handleError = () => {
+    setIsLoading(false);
+    setIsError(true);
+  }
   
-  useEffect(() => {
-    const iframe = iframeRef.current;
-    if (!iframe) return;
-
-    const handleLoad = () => {
-      setIsLoading(false);
-      setIsError(false);
-    };
-
-    const handleError = (e: ErrorEvent | Event) => {
-      console.error(`Banner ${banner.id} failed to load.`, e);
-      setIsLoading(false);
-      setIsError(true);
-    };
-
-    setIsLoading(true);
-    iframe.addEventListener("load", handleLoad);
-    iframe.addEventListener("error", handleError);
-
-    let timeoutId: NodeJS.Timeout | null = null;
-    if (isDataUrl) {
-      // For data URLs, we assume they load very quickly or fail.
-      // A very short timeout helps clear the loading state if the 'load' event doesn't fire for some reason.
-      timeoutId = setTimeout(() => {
-        if(isLoading){
-          handleLoad();
-        }
-      }, 500);
-    } else {
-      // For external URLs, we use a longer timeout.
-      timeoutId = setTimeout(() => {
-        if (isLoading) {
-          handleError(new Event('timeout'));
-        }
-      }, 10000); // 10s timeout
-    }
-
-    return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      if (iframe) {
-        iframe.removeEventListener("load", handleLoad);
-        iframe.removeEventListener("error", handleError);
-      }
-    };
-  }, [iframeKey, banner.id, isDataUrl, isLoading]);
-
-
   return (
     <div
       ref={setNodeRef}
@@ -184,7 +143,6 @@ export function BannerCard({
         )}
         <iframe
           key={iframeKey}
-          ref={iframeRef}
           src={banner.url}
           width={banner.width}
           height={banner.height}
@@ -194,6 +152,8 @@ export function BannerCard({
             (isLoading || isError) && "opacity-0"
           )}
           title={`Banner ${banner.width}x${banner.height}`}
+          onLoad={handleLoad}
+          onError={handleError}
         />
       </div>
 
@@ -262,3 +222,5 @@ export function BannerCard({
     </div>
   );
 }
+
+    
