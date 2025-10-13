@@ -69,18 +69,30 @@ export function BannerCard({
 
   const handleReload = () => {
     if (iframeRef.current) {
-      console.log(`Reloading banner: ${banner.id}`);
+      console.log(`Reloading banner: ${banner.id} (${isDataUrl ? 'data URL' : 'remote URL'})`);
       setIsLoading(true);
       setIsError(false);
-      // Using a key to force re-mount is cleaner, but changing src also works.
-      // Set to blank first to ensure it fully reloads from the new src.
-      iframeRef.current.src = "about:blank";
-      setTimeout(() => {
-        if(iframeRef.current) {
-          console.log(`Setting src for banner ${banner.id}`);
-          iframeRef.current.src = banner.url;
-        }
-      }, 50);
+      // Changing src attribute is enough to trigger a reload, especially with the key.
+      // A common trick is to set to about:blank first for remote URLs.
+      if (!isDataUrl) {
+        iframeRef.current.src = "about:blank";
+        setTimeout(() => {
+          if(iframeRef.current) {
+            iframeRef.current.src = banner.url;
+          }
+        }, 50);
+      } else {
+         // For data URLs, just re-assigning the same src might not be enough
+         // due to browser caching. A trick is to slightly change it or force re-mount
+         // but the `key` on the iframe should handle this. Let's try a direct re-assignment.
+         const currentSrc = iframeRef.current.src;
+         iframeRef.current.src = "about:blank";
+         setTimeout(() => {
+          if(iframeRef.current) {
+            iframeRef.current.src = currentSrc;
+          }
+         }, 50)
+      }
     }
   };
 
@@ -90,37 +102,7 @@ export function BannerCard({
         const canvas = await html2canvas(cardRef.current, {
           allowTaint: true,
           useCORS: true,
-          logging: false,
-          onclone: (doc) => {
-            const iframe = doc.querySelector('iframe');
-            if (iframe) {
-              try {
-                // This approach has limitations due to cross-origin policies
-                // For same-origin or data URLs, it might work.
-                const iframeContentDoc = iframe.contentDocument;
-                 if (iframeContentDoc) {
-                    const newDiv = doc.createElement('div');
-                    newDiv.style.width = `${banner.width}px`;
-                    newDiv.style.height = `${banner.height}px`;
-                    newDiv.style.overflow = 'hidden';
-                    newDiv.innerHTML = iframeContentDoc.body.innerHTML;
-                    // Attempt to copy styles
-                     const style = doc.createElement('style');
-                     style.textContent = Array.from(iframeContentDoc.styleSheets).map(s => {
-                       try {
-                         return Array.from(s.cssRules).map(r => r.cssText).join('\n');
-                       } catch (e) {
-                         return '';
-                       }
-                     }).join('\n');
-                     newDiv.appendChild(style);
-                    iframe.replaceWith(newDiv);
-                 }
-              } catch (e) {
-                 console.error("Could not access iframe content for screenshot:", e);
-              }
-            }
-          }
+          logging: true, // Let's enable logging for screenshots
         });
         canvas.toBlob((blob) => {
           if (blob) {
@@ -133,7 +115,7 @@ export function BannerCard({
         toast({
           variant: "destructive",
           title: "Screenshot Failed",
-          description: "Could not capture screenshot. The banner might be from an external domain or have content restrictions.",
+          description: "Could not capture screenshot. This can happen with banners from external domains or complex HTML5 content.",
         });
       }
     }
@@ -143,7 +125,16 @@ export function BannerCard({
     const iframe = iframeRef.current;
     if (!iframe) return;
     
-    console.log(`Setting up listeners for banner: ${banner.id}`);
+    // For data URLs, we assume they load instantly and don't show the loader.
+    if (isDataUrl) {
+      console.log(`Banner ${banner.id} is a data URL. Setting isLoading to false.`);
+      setIsLoading(false);
+      setIsError(false);
+      return;
+    }
+
+    console.log(`Setting up listeners for remote banner: ${banner.id}`);
+    setIsLoading(true);
 
     const handleLoad = () => {
       console.log(`Banner ${banner.id} finished loading.`);
@@ -158,11 +149,11 @@ export function BannerCard({
     };
 
     const timeoutId = setTimeout(() => {
-        if (isLoading && !isDataUrl) { // Only timeout remote URLs
+        if (isLoading) {
             console.warn(`Banner ${banner.id} timed out.`);
             handleError(new ErrorEvent('timeout', { message: 'Banner loading timed out' }));
         }
-    }, 10000); // 10s timeout
+    }, 10000); // 10s timeout for remote URLs
 
     iframe.addEventListener("load", handleLoad);
     iframe.addEventListener("error", handleError);
@@ -175,7 +166,7 @@ export function BannerCard({
         iframe.removeEventListener("error", handleError);
       }
     };
-  }, [banner.id, banner.url, isLoading, isDataUrl]);
+  }, [banner.id, banner.url, isDataUrl, isLoading]);
 
 
   return (
@@ -225,7 +216,6 @@ export function BannerCard({
             "pointer-events-none border-0 transition-opacity",
             (isLoading || isError) && "opacity-0"
           )}
-          sandbox="allow-scripts allow-same-origin"
           title={`Banner ${banner.width}x${banner.height}`}
         />
       </div>
@@ -273,7 +263,6 @@ export function BannerCard({
               className="border-0"
               style={{ width: banner.width, height: banner.height }}
               scrolling="no"
-              sandbox="allow-scripts allow-same-origin"
             />
           </DialogContent>
         </Dialog>
