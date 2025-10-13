@@ -330,21 +330,20 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       const rootFolder = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
 
       const textFileExtensions = ['.html', '.htm', '.css', '.js', '.svg'];
-      const assetContents = new Map<string, string>();
+      const assetDataUrls = new Map<string, string>();
       const filePromises: Promise<void>[] = [];
 
       zip.forEach((relativePath, zipEntry) => {
         if (!zipEntry.dir && !zipEntry.name.startsWith('__MACOSX')) {
-          const fileExtension = `.${zipEntry.name.split('.').pop()?.toLowerCase()}`;
-          const isText = textFileExtensions.includes(fileExtension);
+          const isText = textFileExtensions.some(ext => zipEntry.name.toLowerCase().endsWith(ext));
           const promise = zipEntry.async(isText ? "string" : "base64").then(content => {
+            const mimeType = getMimeType(zipEntry.name);
             if (isText) {
-              assetContents.set(zipEntry.name, content);
+              assetDataUrls.set(zipEntry.name, content); // Store text content directly for now
             } else {
-              const mimeType = getMimeType(zipEntry.name);
-              assetContents.set(zipEntry.name, `data:${mimeType};base64,${content}`);
+              assetDataUrls.set(zipEntry.name, `data:${mimeType};base64,${content}`);
             }
-            console.log(`Processing file: ${zipEntry.name}`);
+            console.log(`Processing file: ${zipEntry.name}, MIME type: ${mimeType}`);
           });
           filePromises.push(promise);
         }
@@ -352,39 +351,54 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       
       await Promise.all(filePromises);
 
-      const finalAssetContents = new Map<string, string>();
-      
-      for (const [path, content] of assetContents.entries()) {
-        let currentContent = content;
-        const fileExtension = `.${path.split('.').pop()?.toLowerCase()}`;
-        
-        if (textFileExtensions.includes(fileExtension)) {
-          for (const [assetPath, assetContent] of assetContents.entries()) {
-             if (path === assetPath) continue;
+      // Multi-pass replacement
+      const processedAssets = new Map<string, string>();
 
-             const relativePathToAsset = assetPath.startsWith(rootFolder) ? assetPath.substring(rootFolder.length) : assetPath;
-             const dataUrl = textFileExtensions.includes(`.${assetPath.split('.').pop()?.toLowerCase()}`) 
-                ? assetContents.get(assetPath) : assetContent;
-             
-             if(dataUrl) {
-                const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativePathToAsset)}["']`, "g");
-                const originalLength = currentContent.length;
-                currentContent = currentContent.replace(regex, `$1="${dataUrl}"`);
+      for (const [path, content] of assetDataUrls.entries()) {
+          const isText = textFileExtensions.some(ext => path.toLowerCase().endsWith(ext));
+          if (isText) {
+              let currentContent = content;
+              for (const [assetPath, assetDataUrl] of assetDataUrls.entries()) {
+                  if (path === assetPath) continue;
 
-                if (currentContent.length !== originalLength) {
-                    console.log(`Replaced path for: ${relativePathToAsset} in ${path}`);
-                }
-             }
+                  const relativeAssetPath = assetPath.startsWith(rootFolder) ? assetPath.substring(rootFolder.length) : assetPath;
+
+                  // Use the final data URL for binary files, or the raw content for text files (which will be converted later)
+                  const replacementUrl = textFileExtensions.some(ext => assetPath.toLowerCase().endsWith(ext)) 
+                    ? assetDataUrls.get(assetPath)!
+                    : assetDataUrl;
+                  
+                  const regex = new RegExp(`(["'])(?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativeAssetPath)}\\1`, "g");
+                  const originalLength = currentContent.length;
+                  currentContent = currentContent.replace(regex, `$1${replacementUrl}$1`);
+                  if (currentContent.length !== originalLength) {
+                      console.log(`Replaced path for: ${relativeAssetPath} in ${path}`);
+                  }
+              }
+               const mimeType = getMimeType(path);
+              processedAssets.set(path, `data:${mimeType};charset=utf-8,${encodeURIComponent(currentContent)}`);
+          } else {
+              processedAssets.set(path, content); // It's already a data URL
           }
-        }
-        finalAssetContents.set(path, currentContent);
       }
 
-      const finalHtmlContent = finalAssetContents.get(htmlFile.name);
+      let finalHtmlContent = assetDataUrls.get(htmlFile.name)!;
+      console.log("Original HTML content length:", finalHtmlContent.length);
 
-      if (!finalHtmlContent) {
-        throw new Error("Could not construct final HTML content.");
+      for (const [assetPath, dataUrl] of processedAssets.entries()) {
+          if (assetPath === htmlFile.name) continue;
+
+          const relativeAssetPath = assetPath.startsWith(rootFolder) ? assetPath.substring(rootFolder.length) : assetPath;
+          const regex = new RegExp(`(["'])(?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativeAssetPath)}\\1`, "g");
+           const originalLength = finalHtmlContent.length;
+          finalHtmlContent = finalHtmlContent.replace(regex, `$1${dataUrl}$1`);
+
+          if (finalHtmlContent.length !== originalLength) {
+              console.log(`Replaced path for: ${relativeAssetPath} in HTML`);
+          }
       }
+
+      console.log("Final HTML content length:", finalHtmlContent.length);
       
       const finalHtmlDataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(finalHtmlContent)}`;
       console.log("Generated data URL for banner.");
