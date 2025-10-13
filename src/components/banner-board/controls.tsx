@@ -398,7 +398,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
       // Replace main.js and style.css in the final HTML
       for(const path of ['main.js', 'style.css']) {
-          const fileInDataUrls = Array.from(dataUrlPaths.keys()).find(p => p.endsWith(path))
+          const fileInDataUrls = dataUrlPaths.find(p => p.endsWith(path))
           if(fileInDataUrls) {
               const content = processedContents.get(fileInDataUrls)!;
               const dataUrl = `data:${getMimeType(path)};charset=utf-8,${encodeURIComponent(content)}`;
@@ -707,4 +707,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
