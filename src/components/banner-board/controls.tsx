@@ -306,11 +306,12 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         throw new Error("No HTML file found in the zip archive.");
       }
       console.log("HTML file found:", htmlFile.name);
-
+      
+      const rootFolder = htmlFile.name.includes('/') ? htmlFile.name.substring(0, htmlFile.name.lastIndexOf('/') + 1) : '';
 
       const filePromises: Promise<{ path: string, dataUrl: string }>[] = [];
       zip.forEach((relativePath, zipEntry) => {
-        if (!zipEntry.dir) {
+        if (!zipEntry.dir && !zipEntry.name.startsWith('__MACOSX')) {
           const promise = zipEntry.async("base64").then(content => {
             const mimeType = getMimeType(zipEntry.name);
             console.log(`Processing file: ${zipEntry.name}, MIME type: ${mimeType}`);
@@ -328,12 +329,18 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
       // Replace relative paths with data URLs
       fileMap.forEach((dataUrl, path) => {
-        // More robust regex to handle different path styles (e.g. ./, /)
-        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(path)}["']`, "g");
+        // Create a path relative to the HTML file if it's in a subdirectory
+        const relativePath = path.startsWith(rootFolder) ? path.substring(rootFolder.length) : path;
+        
+        // Don't try to replace the path of the HTML file itself
+        if (relativePath === 'index.html' || relativePath === 'index.htm') return;
+
+        // More robust regex to handle different path styles (e.g. ./, / or just the name)
+        const regex = new RegExp(`(src|href)=["'](?!https?:\/\/|data:)(?:\\.\\/|\\/)?${escapeRegExp(relativePath)}["']`, "g");
         const originalHtmlContent = htmlContent;
         htmlContent = htmlContent.replace(regex, `$1="${dataUrl}"`);
         if (originalHtmlContent !== htmlContent) {
-          console.log(`Replaced path for: ${path}`);
+          console.log(`Replaced path for: ${relativePath}`);
         }
       });
       
