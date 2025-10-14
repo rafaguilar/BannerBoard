@@ -323,26 +323,21 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             }
             
             let htmlContent = await htmlFile.async("string");
-            let mainJsContent = '';
 
             const assetMap = new Map<string, string>();
             const assetPromises: Promise<void>[] = [];
             
             for (const fullPath in zip.files) {
-                if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
+                 if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
                 
                 const zipEntry = zip.files[fullPath];
                 const simpleName = fullPath.split('/').pop()!;
                 const mime = getMimeType(simpleName);
                 
                 const promise = (async () => {
-                    const base64Content = await zipEntry.async("base64");
-                    const dataUrl = `data:${mime};base64,${base64Content}`;
+                    const fileContent = await zipEntry.async("base64");
+                    const dataUrl = `data:${mime};base64,${fileContent}`;
                     assetMap.set(simpleName, dataUrl);
-
-                    if (simpleName.endsWith('.js')) {
-                        mainJsContent = await zipEntry.async("string");
-                    }
                 })();
                 assetPromises.push(promise);
             }
@@ -350,13 +345,11 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
             const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
 
-            // Find and replace the main script tag
-            const scriptTags = Array.from(doc.getElementsByTagName('script'));
-            const mainScriptTag = scriptTags.find(s => s.src.includes('main.js') || s.src.includes('script.js'));
-
+            // 1. Inject the asset map and the patcher script
             const patcherScript = `
                 window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
 
+                // Patch Image.src for preloaders
                 const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
                 Object.defineProperty(Image.prototype, 'src', {
                     set: function(value) {
@@ -369,9 +362,10 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     }
                 });
 
+                // Patch CSSStyleDeclaration.setProperty for dynamic styles (e.g., GSAP)
                 const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
                 CSSStyleDeclaration.prototype.setProperty = function(property, value, priority) {
-                    if (value && typeof value === 'string' && value.includes('url(')) {
+                     if (value && typeof value === 'string' && value.includes('url(')) {
                         const urlMatch = value.match(/url\\("?([^")]+)"?\\)/);
                         if (urlMatch && urlMatch[1]) {
                             const assetName = urlMatch[1].split('/').pop();
@@ -383,16 +377,22 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     originalSetProperty.call(this, property, value, priority);
                 };
 
+                // Patch document.head.appendChild to handle dynamic CSS loading
                 const originalAppendChild = document.head.appendChild;
                 document.head.appendChild = function(node) {
-                    if (node.tagName === 'LINK' && node.getAttribute('href').includes('style.css')) {
-                        const styleEl = document.createElement('style');
-                        styleEl.innerHTML = atob(window.ASSET_MAP['style.css'].split(',')[1]);
-                        const result = originalAppendChild.call(document.head, styleEl);
-
-                        // Manually trigger the load event for the original logic to proceed
-                        setTimeout(() => node.dispatchEvent(new Event('load')), 0);
-                        return result;
+                    if (node.tagName === 'LINK' && node.getAttribute('rel') === 'stylesheet') {
+                        const href = node.getAttribute('href');
+                        const assetName = href.split('/').pop();
+                        if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                            const styleEl = document.createElement('style');
+                            const cssContent = atob(window.ASSET_MAP[assetName].split(',')[1]);
+                            styleEl.innerHTML = cssContent;
+                            const result = originalAppendChild.call(document.head, styleEl);
+                            
+                            // Manually trigger the 'load' event for the original logic to proceed
+                            setTimeout(() => node.dispatchEvent(new Event('load')), 0);
+                            return result;
+                        }
                     }
                     return originalAppendChild.call(this, node);
                 };
@@ -402,15 +402,27 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             patcherScriptElement.textContent = patcherScript;
             doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
 
+            // 2. Remove existing main script tag
+            const scriptTags = Array.from(doc.getElementsByTagName('script'));
+            const mainScriptTag = scriptTags.find(s => s.src && (s.src.includes('main.js') || s.src.includes('script.js')));
+            let mainJsContent = '';
             if (mainScriptTag) {
+                const mainJsFileName = mainScriptTag.src.split('/').pop();
+                if (mainJsFileName && assetMap.has(mainJsFileName)) {
+                    mainJsContent = atob(assetMap.get(mainJsFileName)!.split(',')[1]);
+                }
                 mainScriptTag.remove();
+            }
+
+            // 3. Embed main.js content
+            if (mainJsContent) {
                 const newMainScript = doc.createElement('script');
                 newMainScript.textContent = mainJsContent;
                 doc.body.appendChild(newMainScript);
             }
             
             const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
-            
+
             onAddBanners([{
                 url: finalHtml,
                 width, height, round, version,
@@ -701,4 +713,4 @@ export function MainControls(props: MainControlsProps) {
   );
 }
 
-    
+  
