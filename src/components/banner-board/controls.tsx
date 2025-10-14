@@ -323,57 +323,55 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             }
             
             let htmlContent = await htmlFile.async("string");
-            const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
-
-            const assetMap = new Map<string, string>();
+            
+            const assetMap: Record<string, string> = {};
             const assetPromises: Promise<void>[] = [];
             
             Object.values(zip.files).forEach(zipEntry => {
                 if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
 
                 const promise = (async () => {
-                    const mime = getMimeType(zipEntry.name);
-                    const fileContent = await zipEntry.async("base64");
-                    const dataUrl = `data:${mime};base64,${fileContent}`;
-                    assetMap.set(zipEntry.name, dataUrl);
-
-                    // Handle nested paths, e.g. "images/foo.png" -> "foo.png"
                     const simpleName = zipEntry.name.split('/').pop()!;
-                    if (simpleName !== zipEntry.name) {
-                        assetMap.set(simpleName, dataUrl);
+                    const mime = getMimeType(zipEntry.name);
+
+                    if (mime.startsWith('image/') || mime.startsWith('font/')) {
+                         const fileContent = await zipEntry.async("base64");
+                         const dataUrl = `data:${mime};base64,${fileContent}`;
+                         assetMap[simpleName] = dataUrl;
+                         if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = dataUrl;
+                    } else {
+                        const textContent = await zipEntry.async("string");
+                        assetMap[simpleName] = textContent;
+                        if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = textContent;
                     }
                 })();
                 assetPromises.push(promise);
             });
             await Promise.all(assetPromises);
 
-            // 1. Rewrite url() in CSS
-            const styleEntry = Object.values(zip.files).find(f => f.name.endsWith('style.css'));
-            if (styleEntry) {
-                let cssContent = await styleEntry.async("string");
-                const urlRegex = /url\((['"]?)(.*?)\1\)/g;
-                cssContent = cssContent.replace(urlRegex, (match, quote, path) => {
-                    const simplePath = path.split('/').pop();
-                    if (assetMap.has(simplePath)) {
-                        return `url(${assetMap.get(simplePath)})`;
-                    }
-                    return match;
-                });
-                
-                const styleTags = doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]');
-                styleTags.forEach(tag => {
-                    if (tag.href.includes('style.css')) {
-                        const styleElement = doc.createElement('style');
-                        styleElement.textContent = cssContent;
-                        tag.parentNode?.replaceChild(styleElement, tag);
-                    }
-                });
-            }
+            // 1. Process CSS: find all url() paths and replace them with data URLs
+            let cssContent = assetMap['style.css'] || '';
+            const urlRegex = /url\((['"]?)(.*?)\1\)/g;
+            cssContent = cssContent.replace(urlRegex, (match, quote, path) => {
+                const simplePath = path.split('/').pop();
+                if (assetMap[simplePath] && assetMap[simplePath].startsWith('data:')) {
+                    return `url(${assetMap[simplePath]})`;
+                }
+                return match;
+            });
 
+            // 2. Embed CSS directly into HTML
+            htmlContent = htmlContent.replace(/<link[^>]+href="style\.css"[^>]*>/, `<style>${cssContent}</style>`);
+            
+            // 3. Embed main.js directly into HTML
+            const mainJsContent = assetMap['main.js'] || '';
+            htmlContent = htmlContent.replace(/<script[^>]+src="main\.js"[^>]*><\/script>/, `<script>${mainJsContent}</script>`);
 
-            // 2. Inject the asset map and the patcher script
+            // 4. Inject the patcher script
             const patcherScript = `
-                window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
+                window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(
+                    Object.entries(assetMap).filter(([key, value]) => value.startsWith('data:'))
+                ))};
 
                 // Patch Image.src for preloaders
                 const originalImageSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
@@ -404,11 +402,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 };
             `;
             
-            const patcherScriptElement = doc.createElement('script');
-            patcherScriptElement.textContent = patcherScript;
-            doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
+            htmlContent = htmlContent.replace('</head>', `<script>${patcherScript}</script></head>`);
             
-            const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
+            const finalHtml = htmlContent;
 
             onAddBanners([{
                 url: finalHtml,
