@@ -322,13 +322,11 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 }
             }
             
-            let finalHtmlContent = await htmlFile.async("string");
-            const doc = new DOMParser().parseFromString(finalHtmlContent, 'text/html');
+            let htmlContent = await htmlFile.async("string");
+            let mainJsContent = '';
 
             const assetMap = new Map<string, string>();
             const assetPromises: Promise<void>[] = [];
-            let mainJsContent = '';
-            let styleCssContent = '';
             
             for (const fullPath in zip.files) {
                 if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
@@ -339,51 +337,25 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 
                 const promise = (async () => {
                     const base64Content = await zipEntry.async("base64");
-                    let dataUrl: string;
-
-                    if (mime === 'text/css') {
-                        styleCssContent = await zipEntry.async("string");
-                        dataUrl = `data:${mime};base64,${base64Content}`;
-                    } else if (mime === 'application/javascript') {
-                        if (simpleName.match(/main\.js|script\.js/)) {
-                           mainJsContent = await zipEntry.async("string");
-                        }
-                        dataUrl = `data:${mime};base64,${base64Content}`;
-                    } else if (mime.startsWith('image/svg')) {
-                        dataUrl = `data:image/svg+xml;base64,${base64Content}`;
-                    } else if (mime.startsWith('image/') || mime.startsWith('font/')) {
-                        dataUrl = `data:${mime};base64,${base64Content}`;
-                    } else {
-                        dataUrl = `data:${mime};base64,${base64Content}`;
-                    }
+                    const dataUrl = `data:${mime};base64,${base64Content}`;
                     assetMap.set(simpleName, dataUrl);
+
+                    if (simpleName.endsWith('.js')) {
+                        mainJsContent = await zipEntry.async("string");
+                    }
                 })();
                 assetPromises.push(promise);
             }
             await Promise.all(assetPromises);
 
-            for (const [assetName, dataUrl] of assetMap.entries()) {
-                 const regex = new RegExp(assetName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-                 if(styleCssContent) {
-                    styleCssContent = styleCssContent.replace(regex, dataUrl);
-                 }
-            }
+            const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
 
-            doc.querySelector('link[rel="stylesheet"]')?.remove();
-            doc.querySelector('script[src*="main.js"]')?.remove();
-            doc.querySelector('script[src*="script.js"]')?.remove();
-
+            // Find and replace the main script tag
+            const scriptTags = Array.from(doc.getElementsByTagName('script'));
+            const mainScriptTag = scriptTags.find(s => s.src.includes('main.js') || s.src.includes('script.js'));
 
             const patcherScript = `
                 window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
-                const originalSetAttribute = Element.prototype.setAttribute;
-                Element.prototype.setAttribute = function(name, value) {
-                    if ((this.tagName === 'IMG' || this.tagName === 'SOURCE') && name === 'src' && window.ASSET_MAP[value]) {
-                        originalSetAttribute.call(this, name, window.ASSET_MAP[value]);
-                    } else {
-                        originalSetAttribute.call(this, name, value);
-                    }
-                };
 
                 const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
                 Object.defineProperty(Image.prototype, 'src', {
@@ -397,29 +369,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     }
                 });
 
-                const originalAppendChild = Node.prototype.appendChild;
-                let nextFunctionToCall = null;
-                if (mainJsContent) {
-                   const cssLoadMatch = mainJsContent.match(/css\\.addEventListener\\("load",\\s*([^,)]+)/);
-                   if (cssLoadMatch && cssLoadMatch[1]) {
-                        nextFunctionToCall = cssLoadMatch[1].trim();
-                   }
-                }
-
-                Node.prototype.appendChild = function(node) {
-                    if (node.tagName === 'LINK' && node.getAttribute('href').includes('style.css')) {
-                        // It's the stylesheet, don't append it. Instead, trigger the next step.
-                        if (nextFunctionToCall && typeof window[nextFunctionToCall] === 'function') {
-                            setTimeout(window[nextFunctionToCall], 0);
-                        }
-                        return node; // Return the original node as required
-                    }
-                    return originalAppendChild.call(this, node);
-                };
-
                 const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
                 CSSStyleDeclaration.prototype.setProperty = function(property, value, priority) {
-                    if (value && value.includes('url(')) {
+                    if (value && typeof value === 'string' && value.includes('url(')) {
                         const urlMatch = value.match(/url\\("?([^")]+)"?\\)/);
                         if (urlMatch && urlMatch[1]) {
                             const assetName = urlMatch[1].split('/').pop();
@@ -430,20 +382,33 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     }
                     originalSetProperty.call(this, property, value, priority);
                 };
+
+                const originalAppendChild = document.head.appendChild;
+                document.head.appendChild = function(node) {
+                    if (node.tagName === 'LINK' && node.getAttribute('href').includes('style.css')) {
+                        const styleEl = document.createElement('style');
+                        styleEl.innerHTML = atob(window.ASSET_MAP['style.css'].split(',')[1]);
+                        const result = originalAppendChild.call(document.head, styleEl);
+
+                        // Manually trigger the load event for the original logic to proceed
+                        setTimeout(() => node.dispatchEvent(new Event('load')), 0);
+                        return result;
+                    }
+                    return originalAppendChild.call(this, node);
+                };
             `;
             
             const patcherScriptElement = doc.createElement('script');
             patcherScriptElement.textContent = patcherScript;
             doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
 
-            const styleElement = doc.createElement('style');
-            styleElement.textContent = styleCssContent;
-            doc.head.appendChild(styleElement);
+            if (mainScriptTag) {
+                mainScriptTag.remove();
+                const newMainScript = doc.createElement('script');
+                newMainScript.textContent = mainJsContent;
+                doc.body.appendChild(newMainScript);
+            }
             
-            const mainScriptElement = doc.createElement('script');
-            mainScriptElement.textContent = mainJsContent;
-            doc.body.appendChild(mainScriptElement);
-
             const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
             
             onAddBanners([{
@@ -735,3 +700,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
