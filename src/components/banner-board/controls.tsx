@@ -311,53 +311,79 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
         try {
             const zip = await JSZip.loadAsync(file);
-            let htmlFile = zip.file(/(\/)?(index|ad)\.html?$/i)[0];
+            let htmlFile = zip.file(/(\/)?index\.html?$/i)[0];
             
             if (!htmlFile) {
                 const htmlFiles = Object.values(zip.files).filter(f => !f.dir && f.name.match(/\.html?$/i) && !f.name.startsWith('__MACOSX'));
                 if (htmlFiles.length > 0) {
                     htmlFile = htmlFiles.sort((a,b) => a.name.length - b.name.length)[0];
                 } else {
-                     throw new Error("No HTML file found in the zip archive.");
+                     throw new Error("No index.html file found in the zip archive.");
                 }
             }
             
             let htmlContent = await htmlFile.async("string");
+            const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
 
             const assetMap = new Map<string, string>();
             const assetPromises: Promise<void>[] = [];
             
-            for (const fullPath in zip.files) {
-                 if (zip.files[fullPath].dir || fullPath.startsWith('__MACOSX')) continue;
-                
-                const zipEntry = zip.files[fullPath];
-                const simpleName = fullPath.split('/').pop()!;
-                const mime = getMimeType(simpleName);
-                
+            Object.values(zip.files).forEach(zipEntry => {
+                if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
+
                 const promise = (async () => {
+                    const mime = getMimeType(zipEntry.name);
                     const fileContent = await zipEntry.async("base64");
                     const dataUrl = `data:${mime};base64,${fileContent}`;
-                    assetMap.set(simpleName, dataUrl);
+                    assetMap.set(zipEntry.name, dataUrl);
+
+                    // Handle nested paths, e.g. "images/foo.png" -> "foo.png"
+                    const simpleName = zipEntry.name.split('/').pop()!;
+                    if (simpleName !== zipEntry.name) {
+                        assetMap.set(simpleName, dataUrl);
+                    }
                 })();
                 assetPromises.push(promise);
-            }
+            });
             await Promise.all(assetPromises);
 
-            const doc = new DOMParser().parseFromString(htmlContent, 'text/html');
+            // 1. Rewrite url() in CSS
+            const styleEntry = Object.values(zip.files).find(f => f.name.endsWith('style.css'));
+            if (styleEntry) {
+                let cssContent = await styleEntry.async("string");
+                const urlRegex = /url\((['"]?)(.*?)\1\)/g;
+                cssContent = cssContent.replace(urlRegex, (match, quote, path) => {
+                    const simplePath = path.split('/').pop();
+                    if (assetMap.has(simplePath)) {
+                        return `url(${assetMap.get(simplePath)})`;
+                    }
+                    return match;
+                });
+                
+                const styleTags = doc.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]');
+                styleTags.forEach(tag => {
+                    if (tag.href.includes('style.css')) {
+                        const styleElement = doc.createElement('style');
+                        styleElement.textContent = cssContent;
+                        tag.parentNode?.replaceChild(styleElement, tag);
+                    }
+                });
+            }
 
-            // 1. Inject the asset map and the patcher script
+
+            // 2. Inject the asset map and the patcher script
             const patcherScript = `
                 window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(assetMap.entries()))};
 
                 // Patch Image.src for preloaders
-                const originalImageSrcSetter = Object.getOwnPropertyDescriptor(Image.prototype, 'src').set;
+                const originalImageSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
                 Object.defineProperty(Image.prototype, 'src', {
                     set: function(value) {
                         const assetName = value.split('/').pop();
                         if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                            originalImageSrcSetter.call(this, window.ASSET_MAP[assetName]);
+                            originalImageSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
                         } else {
-                            originalImageSrcSetter.call(this, value);
+                            originalImageSrcDescriptor.set.call(this, value);
                         }
                     }
                 });
@@ -376,50 +402,11 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     }
                     originalSetProperty.call(this, property, value, priority);
                 };
-
-                // Patch document.head.appendChild to handle dynamic CSS loading
-                const originalAppendChild = document.head.appendChild;
-                document.head.appendChild = function(node) {
-                    if (node.tagName === 'LINK' && node.getAttribute('rel') === 'stylesheet') {
-                        const href = node.getAttribute('href');
-                        const assetName = href.split('/').pop();
-                        if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                            const styleEl = document.createElement('style');
-                            const cssContent = atob(window.ASSET_MAP[assetName].split(',')[1]);
-                            styleEl.innerHTML = cssContent;
-                            const result = originalAppendChild.call(document.head, styleEl);
-                            
-                            // Manually trigger the 'load' event for the original logic to proceed
-                            setTimeout(() => node.dispatchEvent(new Event('load')), 0);
-                            return result;
-                        }
-                    }
-                    return originalAppendChild.call(this, node);
-                };
             `;
             
             const patcherScriptElement = doc.createElement('script');
             patcherScriptElement.textContent = patcherScript;
             doc.head.insertBefore(patcherScriptElement, doc.head.firstChild);
-
-            // 2. Remove existing main script tag
-            const scriptTags = Array.from(doc.getElementsByTagName('script'));
-            const mainScriptTag = scriptTags.find(s => s.src && (s.src.includes('main.js') || s.src.includes('script.js')));
-            let mainJsContent = '';
-            if (mainScriptTag) {
-                const mainJsFileName = mainScriptTag.src.split('/').pop();
-                if (mainJsFileName && assetMap.has(mainJsFileName)) {
-                    mainJsContent = atob(assetMap.get(mainJsFileName)!.split(',')[1]);
-                }
-                mainScriptTag.remove();
-            }
-
-            // 3. Embed main.js content
-            if (mainJsContent) {
-                const newMainScript = doc.createElement('script');
-                newMainScript.textContent = mainJsContent;
-                doc.body.appendChild(newMainScript);
-            }
             
             const finalHtml = `<!DOCTYPE html>${doc.documentElement.outerHTML}`;
 
@@ -486,7 +473,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Upload a zip file containing an HTML5 banner (with an index.html or ad.html).
+                    Upload a zip file containing an HTML5 banner (with an index.html).
                 </p>
             </form>
         </Form>
@@ -713,4 +700,4 @@ export function MainControls(props: MainControlsProps) {
   );
 }
 
-  
+    
