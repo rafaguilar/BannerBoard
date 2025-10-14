@@ -290,9 +290,8 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             '.css': 'text/css', '.js': 'application/javascript',
             '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
             '.gif': 'image/gif', '.svg': 'image/svg+xml',
-            '.woff': 'font/woff', '.woff2': 'font/woff2',
+            '.woff': 'font/woff', '.woff2': 'font/woff2', '.otf': 'font/otf',
             '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
-            '.otf': 'font/otf'
         };
         return mimeTypes[ext] || 'application/octet-stream';
     }
@@ -328,7 +327,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             const assetPromises: Promise<void>[] = [];
             
             Object.values(zip.files).forEach(zipEntry => {
-                if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX')) return;
+                if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('index.html')) return;
 
                 const promise = (async () => {
                     const simpleName = zipEntry.name.split('/').pop()!;
@@ -339,7 +338,12 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                          const dataUrl = `data:${mime};base64,${fileContent}`;
                          assetMap[simpleName] = dataUrl;
                          if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = dataUrl;
-                    } else {
+                    } else if (mime === 'image/svg+xml') {
+                         const fileContent = await zipEntry.async("string");
+                         const dataUrl = `data:image/svg+xml;base64,${btoa(fileContent)}`;
+                         assetMap[simpleName] = dataUrl;
+                         if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = dataUrl;
+                    } else { // JS, CSS
                         const textContent = await zipEntry.async("string");
                         assetMap[simpleName] = textContent;
                         if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = textContent;
@@ -349,60 +353,82 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             });
             await Promise.all(assetPromises);
 
-            // 1. Process CSS: find all url() paths and replace them with data URLs
-            let cssContent = assetMap['style.css'] || '';
+            let styleContent = assetMap['style.css'] || '';
             const urlRegex = /url\((['"]?)(.*?)\1\)/g;
-            cssContent = cssContent.replace(urlRegex, (match, quote, path) => {
+            styleContent = styleContent.replace(urlRegex, (match, quote, path) => {
                 const simplePath = path.split('/').pop();
                 if (assetMap[simplePath] && assetMap[simplePath].startsWith('data:')) {
                     return `url(${assetMap[simplePath]})`;
                 }
                 return match;
             });
+            assetMap['style.css'] = styleContent;
 
-            // 2. Embed CSS directly into HTML
-            htmlContent = htmlContent.replace(/<link[^>]+href="style\.css"[^>]*>/, `<style>${cssContent}</style>`);
-            
-            // 3. Embed main.js directly into HTML
             const mainJsContent = assetMap['main.js'] || '';
-            htmlContent = htmlContent.replace(/<script[^>]+src="main\.js"[^>]*><\/script>/, `<script>${mainJsContent}</script>`);
+            
+            htmlContent = htmlContent.replace(/<script[^>]+src="main\.js"[^>]*><\/script>/, `<script>${mainJsContent}<\/script>`);
+            htmlContent = htmlContent.replace(/<link[^>]+href="style\.css"[^>]*>/, `<style>${styleContent}</style>`);
 
-            // 4. Inject the patcher script
+
             const patcherScript = `
-                window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(
-                    Object.entries(assetMap).filter(([key, value]) => value.startsWith('data:'))
-                ))};
+                <script>
+                    window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(
+                        Object.entries(assetMap).filter(([key, value]) => value.startsWith('data:'))
+                    ))};
 
-                // Patch Image.src for preloaders
-                const originalImageSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
-                Object.defineProperty(Image.prototype, 'src', {
-                    set: function(value) {
-                        const assetName = value.split('/').pop();
-                        if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                            originalImageSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
-                        } else {
-                            originalImageSrcDescriptor.set.call(this, value);
-                        }
-                    }
-                });
-
-                // Patch CSSStyleDeclaration.setProperty for dynamic styles (e.g., GSAP)
-                const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
-                CSSStyleDeclaration.prototype.setProperty = function(property, value, priority) {
-                     if (value && typeof value === 'string' && value.includes('url(')) {
-                        const urlMatch = value.match(/url\\("?([^")]+)"?\\)/);
-                        if (urlMatch && urlMatch[1]) {
-                            const assetName = urlMatch[1].split('/').pop();
+                    // Patch Image.src for preloaders
+                    const originalImageSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
+                    Object.defineProperty(Image.prototype, 'src', {
+                        set: function(value) {
+                            const assetName = value.split('/').pop();
                             if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                                value = value.replace(urlMatch[1], window.ASSET_MAP[assetName]);
+                                originalImageSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
+                            } else {
+                                originalImageSrcDescriptor.set.call(this, value);
                             }
                         }
-                    }
-                    originalSetProperty.call(this, property, value, priority);
-                };
+                    });
+
+                    // Patch CSSStyleDeclaration.setProperty for dynamic styles (e.g., GSAP)
+                    const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
+                    CSSStyleDeclaration.prototype.setProperty = function(property, value, priority) {
+                        if (value && typeof value === 'string' && value.includes('url(')) {
+                            const urlMatch = value.match(/url\\("?([^")]+)"?\\)/);
+                            if (urlMatch && urlMatch[1]) {
+                                const assetName = urlMatch[1].split('/').pop();
+                                if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
+                                    value = value.replace(urlMatch[1], window.ASSET_MAP[assetName]);
+                                }
+                            }
+                        }
+                        originalSetProperty.call(this, property, value, priority);
+                    };
+
+                    // Patch for dynamic CSS loading
+                    const originalAppendChild = document.head.appendChild;
+                    document.head.appendChild = function(element) {
+                        if (element.tagName === 'LINK' && element.getAttribute('href') === 'style.css') {
+                            const styleElement = document.createElement('style');
+                            styleElement.innerHTML = \`${styleContent.replace(/`/g, '\\`')}\`;
+                            const result = originalAppendChild.call(this, styleElement);
+                            
+                            // Immediately dispatch the load event
+                            setTimeout(() => {
+                                if(element.onload) {
+                                    element.onload();
+                                } else {
+                                     const event = new Event('load');
+                                     element.dispatchEvent(event);
+                                }
+                            }, 0);
+                            return result;
+                        }
+                        return originalAppendChild.call(this, element);
+                    };
+                </script>
             `;
             
-            htmlContent = htmlContent.replace('</head>', `<script>${patcherScript}</script></head>`);
+            htmlContent = htmlContent.replace('</head>', `${patcherScript}</head>`);
             
             const finalHtml = htmlContent;
 
@@ -695,5 +721,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    
