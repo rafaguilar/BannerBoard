@@ -56,7 +56,6 @@ const INJECTED_SCRIPT = `
       (function() {
         const script = document.createElement('script');
         script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
-        script.integrity = "sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise";
         script.crossOrigin = "anonymous";
         script.referrerPolicy = "no-referrer";
         script.onload = function() {
