@@ -15,12 +15,12 @@ const DetectBannerAnomaliesInputSchema = z.object({
   referenceBannerDataUri: z
     .string()
     .describe(
-      'A reference banner image as a data URI that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'.' // eslint-disable-line prettier/prettier
+      'A reference banner image as a data URI that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'. Can be empty.' // eslint-disable-line prettier/prettier
     ),
   comparisonBannerDataUris: z
     .array(z.string())
     .describe(
-      'An array of banner images to compare against the reference banner, as data URIs that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'.' // eslint-disable-line prettier/prettier
+      'An array of banner images to compare against the reference banner, as data URIs that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'. Can be empty.' // eslint-disable-line prettier/prettier
     ),
   customPrompt: z
     .string()
@@ -47,7 +47,7 @@ const prompt = ai.definePrompt({
   input: {schema: DetectBannerAnomaliesInputSchema},
   output: {schema: DetectBannerAnomaliesOutputSchema},
   prompt: `You are an expert QA tester specializing in detecting visual anomalies in advertising banners.
-
+{{#if referenceBannerDataUri}}
 You will be provided with a reference banner image and a list of comparison banner images. 
 {{#if customPrompt}}
 Your task is to focus on the user's specific request: "{{customPrompt}}". Analyze the banners based on this request and provide a detailed answer.
@@ -60,6 +60,14 @@ Reference Banner: {{media url=referenceBannerDataUri}}
 Comparison Banners:
 {{#each comparisonBannerDataUris}}- {{media url=this}}
 {{/each}}
+{{else}}
+The user has not provided banner images for analysis.
+{{#if customPrompt}}
+Please respond to the user's prompt directly: "{{customPrompt}}".
+{{else}}
+Please inform the user that to perform an anomaly detection, they need to provide banner images.
+{{/if}}
+{{/if}}
 
 Anomalies:`, // eslint-disable-line prettier/prettier
 });
@@ -71,6 +79,13 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
     outputSchema: DetectBannerAnomaliesOutputSchema,
   },
   async input => {
+    // If no image data is provided, return a specific message.
+    if (!input.referenceBannerDataUri && !input.customPrompt) {
+      return {
+        anomalies: ['Visual analysis could not be performed because the screenshot process is disabled. Please provide a custom prompt for other types of analysis.'],
+      };
+    }
+    
     const {output} = await prompt(input);
     return output!;
   }

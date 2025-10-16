@@ -500,76 +500,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- AI Anomaly Panel ---
 
-const getBannerDataUri = (banner: Banner): Promise<string> => {
-  // Case 1: The banner is an uploaded image (data URL).
-  if (banner.url.startsWith('data:')) {
-    return Promise.resolve(banner.url);
-  }
-
-  // Case 2: The banner is an uploaded HTML5 ad.
-  if (banner.url.startsWith('/api/preview')) {
-    return new Promise((resolve, reject) => {
-      const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
-      if (!element?.contentWindow) {
-        return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
-      }
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.data?.bannerId !== banner.id) return;
-        
-        if (event.data?.action === 'screenshotCapturedForAI') {
-          window.removeEventListener('message', handleMessage);
-          clearTimeout(timeoutId);
-          resolve(event.data.dataUrl);
-        }
-        if (event.data?.action === 'screenshotFailed') {
-          window.removeEventListener('message', handleMessage);
-          clearTimeout(timeoutId);
-          reject(new Error(event.data.error || 'Screenshot failed inside iframe'));
-        }
-      };
-      
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handleMessage);
-        reject(new Error('Screenshot request timed out.'));
-      }, 10000); // 10 seconds timeout
-      
-      window.addEventListener('message', handleMessage);
-      
-      element.contentWindow.postMessage({
-        action: 'captureScreenshotForAI',
-        bannerId: banner.id,
-        width: banner.width,
-        height: banner.height,
-      }, '*');
-    });
-  }
-
-  // Case 3: The banner is an external URL. Use html2canvas from the outside.
-  return new Promise(async (resolve, reject) => {
-    try {
-      const html2canvas = (await import('html2canvas')).default;
-      const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
-
-      if (!innerElement) {
-        return reject(new Error('Could not find inner element for screenshot.'));
-      }
-      
-      const canvas = await html2canvas(innerElement, {
-        allowTaint: true,
-        useCORS: true,
-        logging: false,
-        width: banner.width,
-        height: banner.height,
-      });
-      resolve(canvas.toDataURL("image/png"));
-    } catch(e) {
-      reject(new Error(`html2canvas failed: ${(e as Error).message}`));
-    }
-  });
-};
-
-
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
   const [referenceBanner, setReferenceBanner] = useState<Banner | null>(null);
   const [comparisonBanners, setComparisonBanners] = useState<Banner[]>([]);
@@ -589,15 +519,10 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
     setIsModalOpen(true);
 
     try {
-
-      const referenceBannerDataUri = await getBannerDataUri(referenceBanner);
-      const comparisonBannerDataUris = await Promise.all(
-        comparisonBanners.map(b => getBannerDataUri(b))
-      );
-
+      // Pass empty strings for the data URIs as screenshots are disabled.
       const result = await detectBannerAnomalies({
-        referenceBannerDataUri,
-        comparisonBannerDataUris,
+        referenceBannerDataUri: "",
+        comparisonBannerDataUris: comparisonBanners.map(() => ""),
         customPrompt: customPrompt || undefined,
       });
 
@@ -670,7 +595,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
           <DialogHeader>
             <DialogTitle>AI Anomaly Detection Results</DialogTitle>
             <DialogDescription>
-              {isLoading ? "Analyzing banners... This may take a moment." : `Analysis complete for reference banner and ${comparisonBanners.length} other(s).`}
+              {isLoading ? "Analyzing... This may take a moment." : `Analysis complete.`}
             </DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto p-1">
@@ -693,7 +618,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
                     <BrainCircuit className="h-4 w-4" />
                     <AlertTitle>No Anomalies Found!</AlertTitle>
                     <AlertDescription>
-                      The AI did not detect any significant visual inconsistencies between the reference and comparison banners.
+                      The AI did not detect any significant visual inconsistencies.
                     </AlertDescription>
                   </Alert>
                 )
@@ -793,5 +718,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    
