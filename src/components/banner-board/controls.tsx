@@ -347,6 +347,8 @@ const html5UploadSchema = z.object({
 function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
     const { toast } = useToast();
     const [isUploading, setIsUploading] = useState(false);
+    const [isDraggingOver, setIsDraggingOver] = useState(false);
+    const fileInputRef = React.useRef<HTMLInputElement>(null);
     const form = useForm<z.infer<typeof html5UploadSchema>>({
         resolver: zodResolver(html5UploadSchema),
         defaultValues: {
@@ -354,11 +356,9 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             version: 1,
         },
     });
-
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = e.target.files;
-        if (!files || files.length === 0) return;
-        const file = files[0];
+    
+    const processFile = async (file: File | null) => {
+        if (!file) return;
 
         if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
             toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .zip file." });
@@ -402,8 +402,34 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             setIsUploading(false);
         }
 
-        e.target.value = '';
+        if(fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
+    }
+
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+       processFile(e.target.files?.[0] || null);
     };
+
+    const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingOver(false);
+      processFile(e.dataTransfer.files?.[0] || null);
+    };
+  
+    const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingOver(true);
+    };
+
+    const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDraggingOver(false);
+    };
+
 
     return (
         <Form {...form}>
@@ -428,7 +454,16 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     <FormLabel htmlFor="html5-file-upload">HTML5 Zip File</FormLabel>
                     <div className="mt-2">
                         <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-                            <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
+                            <div 
+                              className={cn(
+                                "flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center transition-colors",
+                                isDraggingOver && "border-primary bg-accent",
+                                isUploading && "cursor-not-allowed opacity-50"
+                              )}
+                              onDrop={handleDrop}
+                              onDragOver={handleDragOver}
+                              onDragLeave={handleDragLeave}
+                            >
                                 {isUploading ? (
                                     <div className="text-center">
                                         <Loader className="mx-auto h-12 w-12 animate-spin text-muted-foreground" />
@@ -437,11 +472,11 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                                 ) : (
                                     <div className="text-center">
                                         <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
-                                        <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
+                                        <p className="mt-2 text-sm text-muted-foreground">Click or drag & drop a .zip file</p>
                                     </div>
                                 )}
                             </div>
-                            <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} disabled={isUploading} />
+                            <input ref={fileInputRef} id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} disabled={isUploading} />
                         </label>
                     </div>
                 </div>
