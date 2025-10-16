@@ -80,12 +80,6 @@ export function BannerCard({
         width: banner.width,
         height: banner.height,
       }, '*');
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Screenshot Failed",
-        description: "Screenshots are only supported for uploaded HTML5 banners.",
-      });
     }
   };
 
@@ -98,31 +92,40 @@ export function BannerCard({
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Basic security check
-      if (!event.data || !event.data.action || event.data.bannerId !== banner.id) return;
+      // Basic security and relevance check
+      if (!event.data || !event.data.action || event.data.bannerId !== banner.id) {
+        return;
+      }
 
-      if (event.data.action === 'screenshotCaptured') {
-        fetch(event.data.dataUrl)
-          .then(res => res.blob())
-          .then(blob => {
-            saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
-            toast({ title: "Screenshot captured!" });
-          });
-      } else if (event.data.action === 'screenshotFailed') {
-          console.error("Screenshot failed inside iframe:", event.data.error);
+      const { action, dataUrl, error, isPlaying: newIsPlaying } = event.data;
+
+      switch (action) {
+        case 'screenshotCaptured':
+          fetch(dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
+              toast({ title: "Screenshot captured!" });
+            });
+          break;
+        case 'screenshotFailed':
+          console.error("Screenshot failed inside iframe:", error);
           toast({
-              variant: "destructive",
-              title: "Screenshot Failed",
-              description: "Could not capture screenshot. The banner may have complex content or security restrictions.",
+            variant: "destructive",
+            title: "Screenshot Failed",
+            description: error || "Could not capture screenshot. The banner may have complex content or security restrictions.",
           });
-      } else if (event.data.action === 'playPauseSuccess') {
-          setIsPlaying(event.data.isPlaying);
-      } else if (event.data.action === 'playPauseFailed') {
+          break;
+        case 'playPauseSuccess':
+          setIsPlaying(newIsPlaying);
+          break;
+        case 'playPauseFailed':
           toast({
-              variant: "destructive",
-              title: "Playback Control Failed",
-              description: event.data.error || "Could not control this banner's animation."
+            variant: "destructive",
+            title: "Playback Control Failed",
+            description: error || "Could not control this banner's animation."
           });
+          break;
       }
     };
 
@@ -130,7 +133,7 @@ export function BannerCard({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [banner, toast]);
+  }, [banner.id, banner.width, banner.height, toast]);
   
   const handleReload = () => {
     setIsError(false);
