@@ -92,29 +92,36 @@ export function BannerCard({
   const handleTogglePlay = () => {
     if (isApiUrl && iframeRef.current?.contentWindow) {
       const action = isPlaying ? 'pause' : 'play';
-      iframeRef.current.contentWindow.postMessage({ action }, '*');
-      setIsPlaying(!isPlaying);
+      iframeRef.current.contentWindow.postMessage({ action, bannerId: banner.id }, '*');
     }
   };
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Basic security check
-      if (!event.data || !event.data.action) return;
+      if (!event.data || !event.data.action || event.data.bannerId !== banner.id) return;
 
-      if (event.data.action === 'screenshotCaptured' && event.data.bannerId === banner.id) {
+      if (event.data.action === 'screenshotCaptured') {
         fetch(event.data.dataUrl)
           .then(res => res.blob())
           .then(blob => {
             saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
             toast({ title: "Screenshot captured!" });
           });
-      } else if (event.data.action === 'screenshotFailed' && event.data.bannerId === banner.id) {
+      } else if (event.data.action === 'screenshotFailed') {
           console.error("Screenshot failed inside iframe:", event.data.error);
           toast({
               variant: "destructive",
               title: "Screenshot Failed",
               description: "Could not capture screenshot. The banner may have complex content or security restrictions.",
+          });
+      } else if (event.data.action === 'playPauseSuccess') {
+          setIsPlaying(event.data.isPlaying);
+      } else if (event.data.action === 'playPauseFailed') {
+          toast({
+              variant: "destructive",
+              title: "Playback Control Failed",
+              description: event.data.error || "Could not control this banner's animation."
           });
       }
     };

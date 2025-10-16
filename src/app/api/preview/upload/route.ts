@@ -62,7 +62,10 @@ const INJECTED_SCRIPT = `
           var masterTimeline;
 
           window.addEventListener('message', function(event) {
-              if (event.data && event.data.action === 'captureScreenshot') {
+              if (!event.data || !event.data.action) return;
+              const bannerId = event.data.bannerId;
+
+              if (event.data.action === 'captureScreenshot') {
                   html2canvas(document.body, {
                       allowTaint: true,
                       useCORS: true,
@@ -76,38 +79,60 @@ const INJECTED_SCRIPT = `
                       window.parent.postMessage({
                           action: 'screenshotCaptured',
                           dataUrl: dataUrl,
-                          bannerId: event.data.bannerId
+                          bannerId: bannerId
                       }, '*');
                   }).catch(function(error) {
                       console.error('html2canvas error:', error);
                       window.parent.postMessage({
                           action: 'screenshotFailed',
                           error: 'html2canvas failed to execute.',
-                          bannerId: event.data.bannerId
+                          bannerId: bannerId
                       }, '*');
                   });
-              } else if (event.data && event.data.action === 'play') {
+              } else if (event.data.action === 'play') {
+                  let played = false;
                   if (masterTimeline) {
                     masterTimeline.resume();
+                    played = true;
                   } else if (typeof window.play === 'function') {
                     window.play();
+                    played = true;
                   } else if (window.timeline && typeof window.timeline.play === 'function') {
                     window.timeline.play();
+                    played = true;
                   }
-              } else if (event.data && event.data.action === 'pause') {
+                  
+                  if(played) {
+                    window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: true }, '*');
+                  } else {
+                    window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard play/resume method found.' }, '*');
+                  }
+
+              } else if (event.data.action === 'pause') {
                   var gsap = window.gsap || window.TweenLite || window.TweenMax;
                   var timeline = window.TimelineLite || window.TimelineMax;
+                  let paused = false;
 
                   if (timeline && typeof timeline.exportRoot === 'function') {
                     masterTimeline = timeline.exportRoot();
                     masterTimeline.pause();
+                    paused = true;
                   } else if (gsap && gsap.globalTimeline) {
                     masterTimeline = gsap.globalTimeline;
                     masterTimeline.pause();
+                    paused = true;
                   } else if (typeof window.pause === 'function') {
                     window.pause();
+                    paused = true;
                   } else if (window.timeline && typeof window.timeline.pause === 'function') {
                     window.timeline.pause();
+                    paused = true;
+                  }
+
+                   if(paused) {
+                    window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: false }, '*');
+                  } else {
+                    window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard pause/exportRoot method found.' }, '*');
                   }
               }
           });
