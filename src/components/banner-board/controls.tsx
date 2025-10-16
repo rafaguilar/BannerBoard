@@ -357,49 +357,57 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         },
     });
     
-    const processFile = async (file: File | null) => {
-        if (!file) return;
-
-        if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
-            toast({ variant: "destructive", title: "Invalid File Type", description: "Please upload a .zip file." });
-            return;
-        }
-
-        setIsUploading(true);
+    const processFiles = async (files: FileList | null) => {
+        if (!files || files.length === 0) return;
 
         const { round, version } = form.getValues();
+        let filesProcessed = 0;
         
-        const formData = new FormData();
-        formData.append('file', file);
+        setIsUploading(true);
 
-        try {
-            const response = await fetch('/api/preview/upload', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Upload failed');
+        const uploadPromises = Array.from(files).map(async file => {
+            if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
+                toast({ variant: "destructive", title: "Invalid File Type", description: `Skipping non-zip file: ${file.name}.` });
+                return;
             }
 
-            const { url, width, height } = await response.json();
+            const formData = new FormData();
+            formData.append('file', file);
 
-            onAddBanners([{
-                url,
-                width,
-                height,
-                round, 
-                version,
-            }]);
+            try {
+                const response = await fetch('/api/preview/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
 
-            toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} is being prepared.` });
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Upload failed');
+                }
 
-        } catch (error) {
-            console.error("Error uploading zip file:", error);
-            toast({ variant: "destructive", title: "Upload Error", description: (error as Error).message || "Could not upload the zip file." });
-        } finally {
-            setIsUploading(false);
+                const { url, width, height } = await response.json();
+
+                onAddBanners([{
+                    url,
+                    width,
+                    height,
+                    round,
+                    version,
+                }]);
+                filesProcessed++;
+
+            } catch (error) {
+                console.error("Error uploading zip file:", error);
+                toast({ variant: "destructive", title: "Upload Error", description: `Could not upload ${file.name}: ${(error as Error).message}` });
+            }
+        });
+
+        await Promise.all(uploadPromises);
+
+        setIsUploading(false);
+
+        if (filesProcessed > 0) {
+             toast({ title: "HTML5 Banners Added", description: `${filesProcessed} banner(s) are being prepared.` });
         }
 
         if(fileInputRef.current) {
@@ -408,14 +416,14 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     }
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-       processFile(e.target.files?.[0] || null);
+       processFiles(e.target.files);
     };
 
     const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDraggingOver(false);
-      processFile(e.dataTransfer.files?.[0] || null);
+      processFiles(e.dataTransfer.files);
     };
   
     const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -451,7 +459,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     )} />
                 </div>
                 <div>
-                    <FormLabel htmlFor="html5-file-upload">HTML5 Zip File</FormLabel>
+                    <FormLabel htmlFor="html5-file-upload">HTML5 Zip File(s)</FormLabel>
                     <div className="mt-2">
                         <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                             <div 
@@ -472,16 +480,16 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                                 ) : (
                                     <div className="text-center">
                                         <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
-                                        <p className="mt-2 text-sm text-muted-foreground">Click or drag & drop a .zip file</p>
+                                        <p className="mt-2 text-sm text-muted-foreground">Click or drag & drop .zip files</p>
                                     </div>
                                 )}
                             </div>
-                            <input ref={fileInputRef} id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} disabled={isUploading} />
+                            <input ref={fileInputRef} id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} disabled={isUploading} multiple />
                         </label>
                     </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Upload a zip file containing an HTML5 banner. Dimensions will be detected automatically from the ad.size meta tag.
+                    Upload one or more zip files containing HTML5 banners. Dimensions will be detected automatically from the ad.size meta tag.
                 </p>
             </form>
         </Form>
@@ -756,3 +764,4 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
