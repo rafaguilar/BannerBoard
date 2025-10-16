@@ -15,7 +15,7 @@ const DetectBannerAnomaliesInputSchema = z.object({
   referenceBannerDataUri: z
     .string()
     .describe(
-      'A reference banner image as a data URI that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'. Can be empty.' // eslint-disable-line prettier/prettier
+      "A reference banner image as a data URI that must include a MIME type and use Base64 encoding. Expected format: 'data:<mimetype>;base64,<encoded_data>'. Can be empty." // eslint-disable-line prettier/prettier
     ),
   comparisonBannerDataUris: z
     .array(z.string())
@@ -61,9 +61,8 @@ Comparison Banners:
 {{#each comparisonBannerDataUris}}- {{media url=this}}
 {{/each}}
 {{else}}
-The user has not provided banner images for analysis.
 {{#if customPrompt}}
-Please respond to the user's prompt directly: "{{customPrompt}}".
+Please respond to the user's prompt directly: "{{customPrompt}}". If the prompt requires visual analysis, state that you cannot perform the analysis without banner images.
 {{else}}
 Please inform the user that to perform an anomaly detection, they need to provide banner images.
 {{/if}}
@@ -85,7 +84,7 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
         return output!;
     }
     // If no image data AND no prompt, guide the user.
-    if (!input.referenceBannerDataUri) {
+    if (!input.referenceBannerDataUri && input.comparisonBannerDataUris.length === 0) {
       return {
         anomalies: ['Cannot perform visual analysis because no banner images were provided. Please select banners to analyze.'],
       };

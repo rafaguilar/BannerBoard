@@ -526,7 +526,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
       const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handleMessage);
         reject(new Error('Screenshot request timed out.'));
-      }, 20000); // 20 seconds timeout
+      }, 10000); // 10 seconds timeout
       
       window.addEventListener('message', handleMessage);
 
@@ -589,12 +589,12 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       let compDataUris: string[] = [];
 
       if (referenceBanner) {
-        [refDataUri, ...compDataUris] = await Promise.all([
-          getBannerDataUri(referenceBanner),
-          ...comparisonBanners.map(getBannerDataUri)
-        ]);
+         refDataUri = await getBannerDataUri(referenceBanner);
       }
-
+      if (comparisonBanners.length > 0) {
+        compDataUris = await Promise.all(comparisonBanners.map(getBannerDataUri));
+      }
+      
       const result = await detectBannerAnomalies({
         referenceBannerDataUri: refDataUri,
         comparisonBannerDataUris: compDataUris,
@@ -633,6 +633,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
   };
 
   const isRunDisabled = () => {
+    if (isLoading) return true;
     if (customPrompt) return false; // Always allow if there's a prompt
     if (!referenceBanner) return true; // Must have a reference if no prompt
     if (comparisonBanners.length === 0) return true; // Must have comparisons if no prompt
@@ -683,7 +684,8 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       </div>
       
       <Button onClick={handleRunDetection} disabled={isRunDisabled()} className="w-full">
-        <BrainCircuit className="mr-2 h-4 w-4" /> Run Detection
+        {isLoading ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : <BrainCircuit className="mr-2 h-4 w-4" />}
+        {isLoading ? "Analyzing..." : "Run Detection"}
       </Button>
 
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
