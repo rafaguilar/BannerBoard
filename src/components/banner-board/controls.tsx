@@ -50,6 +50,7 @@ import { useToast } from "@/hooks/use-toast";
 import { detectBannerAnomalies } from "@/ai/flows/ai-anomaly-detection";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
+import { Label } from "@/components/ui/label";
 
 
 // --- Banner Input Panel ---
@@ -501,16 +502,13 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 const getBannerDataUri = (banner: Banner): Promise<string> => {
   return new Promise(async (resolve, reject) => {
-    const isDataUrl = banner.url.startsWith('data:');
-    const isApiUrl = banner.url.startsWith('/api/preview');
-
     // Case 1: The banner is an uploaded image (data URL).
-    if (isDataUrl) {
+    if (banner.url.startsWith('data:')) {
       return resolve(banner.url);
     }
-
+    
     // Case 2: The banner is an uploaded HTML5 ad.
-    if (isApiUrl) {
+    if (banner.url.startsWith('/api/preview')) {
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
       if (!element?.contentWindow) {
         return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
@@ -653,7 +651,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       </div>
 
       <div>
-        <FormLabel htmlFor="ai-prompt">Custom Prompt (Optional)</FormLabel>
+        <Label htmlFor="ai-prompt">Custom Prompt (Optional)</Label>
         <Textarea
           id="ai-prompt"
           placeholder="e.g., 'Check if all banners have the same copy.'"
@@ -795,12 +793,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    
-
-    
-
-
-
-
-
