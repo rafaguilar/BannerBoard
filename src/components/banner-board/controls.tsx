@@ -501,24 +501,22 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 // --- AI Anomaly Panel ---
 
 const getBannerDataUri = (banner: Banner): Promise<string> => {
-  return new Promise(async (resolve, reject) => {
-    // Case 1: The banner is an uploaded image (data URL).
-    if (banner.url.startsWith('data:')) {
-      return resolve(banner.url);
-    }
-    
-    // Case 2: The banner is an uploaded HTML5 ad.
-    if (banner.url.startsWith('/api/preview')) {
+  // Case 1: The banner is an uploaded image (data URL).
+  if (banner.url.startsWith('data:')) {
+    return Promise.resolve(banner.url);
+  }
+
+  // Case 2: The banner is an uploaded HTML5 ad.
+  if (banner.url.startsWith('/api/preview')) {
+    return new Promise((resolve, reject) => {
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
-      if (!element) {
-        return reject(new Error(`Could not find iframe for banner ${banner.id}`));
-      }
-      if (!element.contentWindow) {
+      if (!element?.contentWindow) {
         return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
       }
 
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.bannerId !== banner.id) return;
+        
         if (event.data?.action === 'screenshotCapturedForAI') {
           window.removeEventListener('message', handleMessage);
           clearTimeout(timeoutId);
@@ -544,10 +542,11 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
         width: banner.width,
         height: banner.height,
       }, '*');
-      return;
-    }
+    });
+  }
 
-    // Case 3: The banner is an external URL. Use html2canvas from the outside.
+  // Case 3: The banner is an external URL. Use html2canvas from the outside.
+  return new Promise(async (resolve, reject) => {
     try {
       const html2canvas = (await import('html2canvas')).default;
       const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
@@ -794,3 +793,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
