@@ -5,7 +5,6 @@ import React, { useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import JSZip from "jszip";
 import {
   Tabs,
   TabsContent,
@@ -45,13 +44,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { detectBannerAnomalies } from "@/ai/flows/ai-anomaly-detection";
 import html2canvas from "html2canvas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { VisuallyHidden } from "@/components/ui/visually-hidden";
 
 
 // --- Banner Input Panel ---
@@ -273,6 +270,7 @@ const html5UploadSchema = z.object({
 
 function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
     const { toast } = useToast();
+    const [isUploading, setIsUploading] = useState(false);
     const form = useForm<z.infer<typeof html5UploadSchema>>({
         resolver: zodResolver(html5UploadSchema),
         defaultValues: {
@@ -282,19 +280,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             version: 1,
         },
     });
-
-    const getMimeType = (filename: string): string => {
-        const ext = `.${filename.split('.').pop()?.toLowerCase()}`;
-        const mimeTypes: Record<string, string> = {
-            '.html': 'text/html', '.htm': 'text/html',
-            '.css': 'text/css', '.js': 'application/javascript',
-            '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-            '.gif': 'image/gif', '.svg': 'image/svg+xml',
-            '.woff': 'font/woff', '.woff2': 'font/woff2', '.otf': 'font/otf',
-            '.ttf': 'font/ttf', '.eot': 'application/vnd.ms-fontobject',
-        };
-        return mimeTypes[ext] || 'application/octet-stream';
-    }
 
     const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const files = e.target.files;
@@ -306,142 +291,38 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             return;
         }
 
+        setIsUploading(true);
+
         const { round, version, width, height } = form.getValues();
+        
+        const formData = new FormData();
+        formData.append('file', file);
 
         try {
-            const zip = await JSZip.loadAsync(file);
-            let htmlFile = zip.file(/(\/)?index\.html?$/i)[0];
-            
-            if (!htmlFile) {
-                const htmlFiles = Object.values(zip.files).filter(f => !f.dir && f.name.match(/\.html?$/i) && !f.name.startsWith('__MACOSX'));
-                if (htmlFiles.length > 0) {
-                    htmlFile = htmlFiles.sort((a,b) => a.name.length - b.name.length)[0];
-                } else {
-                     throw new Error("No index.html file found in the zip archive.");
-                }
+            const response = await fetch('/api/preview/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Upload failed');
             }
-            
-            let htmlContent = await htmlFile.async("string");
-            
-            const assetMap: Record<string, string> = {};
-            const assetPromises: Promise<void>[] = [];
-            
-            Object.values(zip.files).forEach(zipEntry => {
-                if (zipEntry.dir || zipEntry.name.startsWith('__MACOSX') || zipEntry.name.endsWith('index.html')) return;
 
-                const promise = (async () => {
-                    const simpleName = zipEntry.name.split('/').pop()!;
-                    const mime = getMimeType(zipEntry.name);
-
-                    if (mime.startsWith('image/') || mime.startsWith('font/')) {
-                         const fileContent = await zipEntry.async("base64");
-                         const dataUrl = `data:${mime};base64,${fileContent}`;
-                         assetMap[simpleName] = dataUrl;
-                         if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = dataUrl;
-                    } else if (mime === 'image/svg+xml') {
-                         const fileContent = await zipEntry.async("string");
-                         const dataUrl = `data:image/svg+xml;base64,${btoa(fileContent)}`;
-                         assetMap[simpleName] = dataUrl;
-                         if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = dataUrl;
-                    } else { // JS, CSS
-                        const textContent = await zipEntry.async("string");
-                        assetMap[simpleName] = textContent;
-                        if (simpleName !== zipEntry.name) assetMap[zipEntry.name] = textContent;
-                    }
-                })();
-                assetPromises.push(promise);
-            });
-            await Promise.all(assetPromises);
-
-            let styleContent = assetMap['style.css'] || '';
-            const urlRegex = /url\((['"]?)(.*?)\1\)/g;
-            styleContent = styleContent.replace(urlRegex, (match, quote, path) => {
-                const simplePath = path.split('/').pop();
-                if (assetMap[simplePath] && assetMap[simplePath].startsWith('data:')) {
-                    return `url(${assetMap[simplePath]})`;
-                }
-                return match;
-            });
-            assetMap['style.css'] = styleContent;
-
-            const mainJsContent = assetMap['main.js'] || '';
-            
-            htmlContent = htmlContent.replace(/<script[^>]+src="main\.js"[^>]*><\/script>/, `<script>${mainJsContent}<\/script>`);
-            htmlContent = htmlContent.replace(/<link[^>]+href="style\.css"[^>]*>/, `<style>${styleContent}</style>`);
-
-
-            const patcherScript = `
-                <script>
-                    window.ASSET_MAP = ${JSON.stringify(Object.fromEntries(
-                        Object.entries(assetMap).filter(([key, value]) => value.startsWith('data:'))
-                    ))};
-
-                    // Patch Image.src for preloaders
-                    const originalImageSrcDescriptor = Object.getOwnPropertyDescriptor(Image.prototype, 'src');
-                    Object.defineProperty(Image.prototype, 'src', {
-                        set: function(value) {
-                            const assetName = value.split('/').pop();
-                            if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                                originalImageSrcDescriptor.set.call(this, window.ASSET_MAP[assetName]);
-                            } else {
-                                originalImageSrcDescriptor.set.call(this, value);
-                            }
-                        }
-                    });
-
-                    // Patch CSSStyleDeclaration.setProperty for dynamic styles (e.g., GSAP)
-                    const originalSetProperty = CSSStyleDeclaration.prototype.setProperty;
-                    CSSStyleDeclaration.prototype.setProperty = function(property, value, priority) {
-                        if (value && typeof value === 'string' && value.includes('url(')) {
-                            const urlMatch = value.match(/url\\("?([^")]+)"?\\)/);
-                            if (urlMatch && urlMatch[1]) {
-                                const assetName = urlMatch[1].split('/').pop();
-                                if (window.ASSET_MAP && window.ASSET_MAP[assetName]) {
-                                    value = value.replace(urlMatch[1], window.ASSET_MAP[assetName]);
-                                }
-                            }
-                        }
-                        originalSetProperty.call(this, property, value, priority);
-                    };
-
-                    // Patch for dynamic CSS loading
-                    const originalAppendChild = document.head.appendChild;
-                    document.head.appendChild = function(element) {
-                        if (element.tagName === 'LINK' && element.getAttribute('href') === 'style.css') {
-                            const styleElement = document.createElement('style');
-                            styleElement.innerHTML = \`${styleContent.replace(/`/g, '\\`')}\`;
-                            const result = originalAppendChild.call(this, styleElement);
-                            
-                            // Immediately dispatch the load event
-                            setTimeout(() => {
-                                if(element.onload) {
-                                    element.onload();
-                                } else {
-                                     const event = new Event('load');
-                                     element.dispatchEvent(event);
-                                }
-                            }, 0);
-                            return result;
-                        }
-                        return originalAppendChild.call(this, element);
-                    };
-                </script>
-            `;
-            
-            htmlContent = htmlContent.replace('</head>', `${patcherScript}</head>`);
-            
-            const finalHtml = htmlContent;
+            const { url } = await response.json();
 
             onAddBanners([{
-                url: finalHtml,
+                url: url,
                 width, height, round, version,
             }]);
 
-            toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} was successfully processed.` });
+            toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} is being prepared.` });
 
         } catch (error) {
-            console.error("Error processing zip file:", error);
-            toast({ variant: "destructive", title: "Zip Processing Error", description: (error as Error).message || "Could not read the zip file." });
+            console.error("Error uploading zip file:", error);
+            toast({ variant: "destructive", title: "Upload Error", description: (error as Error).message || "Could not upload the zip file." });
+        } finally {
+            setIsUploading(false);
         }
 
         e.target.value = '';
@@ -485,12 +366,19 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     <div className="mt-2">
                         <label htmlFor="html5-file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
                             <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
-                                <div className="text-center">
-                                    <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
-                                    <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
-                                </div>
+                                {isUploading ? (
+                                    <div className="text-center">
+                                        <Loader className="mx-auto h-12 w-12 animate-spin text-muted-foreground" />
+                                        <p className="mt-2 text-sm text-muted-foreground">Uploading and processing...</p>
+                                    </div>
+                                ) : (
+                                    <div className="text-center">
+                                        <FileArchive className="mx-auto h-12 w-12 text-muted-foreground" />
+                                        <p className="mt-2 text-sm text-muted-foreground">Click to upload a .zip file</p>
+                                    </div>
+                                )}
                             </div>
-                            <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} />
+                            <input id="html5-file-upload" name="html5-file-upload" type="file" className="sr-only" accept=".zip,application/zip" onChange={handleFileChange} disabled={isUploading} />
                         </label>
                     </div>
                 </div>
@@ -501,7 +389,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         </Form>
     );
 }
-
 
 // --- AI Anomaly Panel ---
 

@@ -48,7 +48,7 @@ export function BannerCard({
 }: BannerCardProps) {
   const { toast } = useToast();
   const isDataUrl = banner.url.startsWith('data:');
-  const isHtmlContent = banner.url.startsWith("<!DOCTYPE html>") || banner.url.startsWith("<html>");
+  const isApiUrl = banner.url.startsWith('/api/preview');
   
   const [isLoading, setIsLoading] = React.useState(true);
   const [isError, setIsError] = React.useState(false);
@@ -160,10 +160,10 @@ export function BannerCard({
           </div>
         )}
         
-        {isHtmlContent ? (
-           <iframe {...iframeProps} key={iframeKey} srcDoc={banner.url} sandbox="allow-scripts allow-same-origin" />
+        {isDataUrl ? (
+           <iframe {...iframeProps} key={iframeKey} src={banner.url} />
         ) : (
-             <iframe {...iframeProps} key={iframeKey} src={banner.url} />
+             <iframe {...iframeProps} key={iframeKey} src={banner.url} sandbox={isApiUrl ? "allow-scripts allow-same-origin" : undefined} />
         )}
       </div>
 
@@ -208,15 +208,14 @@ export function BannerCard({
             <VisuallyHidden>
               <DialogTitle>Fullscreen Banner Preview</DialogTitle>
             </VisuallyHidden>
-             {isHtmlContent ? (
+             {isDataUrl ? (
                 <iframe
                     key={iframeKey}
                     className="border-0"
                     style={{ width: banner.width, height: banner.height }}
                     scrolling="no"
                     title="Fullscreen Banner"
-                    srcDoc={banner.url}
-                    sandbox="allow-scripts allow-same-origin"
+                    src={banner.url}
                 />
             ) : (
                 <iframe
@@ -225,6 +224,7 @@ export function BannerCard({
                     style={{ width: banner.width, height: banner.height }}
                     scrolling="no"
                     title="Fullscreen Banner"
+                    sandbox={isApiUrl ? "allow-scripts allow-same-origin" : undefined}
                 />
             )}
           </DialogContent>
