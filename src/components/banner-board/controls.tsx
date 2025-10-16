@@ -1,5 +1,4 @@
 
-
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -502,49 +501,21 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 // --- AI Anomaly Panel ---
 
 const getBannerDataUri = (banner: Banner): Promise<string> => {
-  // Case 1: Data URL (already a base64 image)
-  if (banner.url.startsWith('data:')) {
-    return Promise.resolve(banner.url);
-  }
-
-  // Case 2: HTML5 Banner (from /api/preview)
-  if (banner.url.startsWith('/api/preview')) {
-    return new Promise((resolve, reject) => {
-      const iframe = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
-      if (!iframe?.contentWindow) {
-        return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
-      }
-
-      const handleMessage = (event: MessageEvent) => {
-        if (event.data?.action === 'screenshotCapturedForAI' && event.data?.bannerId === banner.id) {
-          window.removeEventListener('message', handleMessage);
-          clearTimeout(timeoutId);
-          resolve(event.data.dataUrl);
-        }
-      };
-
-      const timeoutId = setTimeout(() => {
-        window.removeEventListener('message', handleMessage);
-        reject(new Error('Screenshot request timed out.'));
-      }, 10000); // 10 seconds timeout
-      
-      window.addEventListener('message', handleMessage);
-
-      iframe.contentWindow.postMessage({
-        action: 'screenshotCapturedForAI',
-        bannerId: banner.id,
-        width: banner.width,
-        height: banner.height,
-      }, '*');
-    });
-  }
-
-  // Case 3: External URL or other
   return new Promise((resolve, reject) => {
+    // Case 1: Data URL (already a base64 image from local upload)
+    if (banner.url.startsWith('data:image')) {
+      resolve(banner.url);
+      return;
+    }
+
+    // Case 2: External URL (e.g., http://.../banner.jpg)
+    // Find the banner card's inner element to capture it
     const element = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
     if (!element) {
-      return reject(new Error(`Could not find banner card element for banner ${banner.id}`));
+      reject(new Error(`Could not find banner card element for banner ${banner.id}`));
+      return;
     }
+
     html2canvas(element, {
       allowTaint: true,
       useCORS: true,
@@ -555,7 +526,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
       resolve(canvas.toDataURL('image/png'));
     }).catch(error => {
         console.error('html2canvas error:', error);
-        reject(new Error('Failed to capture banner with html2canvas.'));
+        reject(new Error(`Failed to capture banner with html2canvas for banner ${banner.id}.`));
     });
   });
 };
@@ -574,6 +545,18 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
     if (!referenceBanner && comparisonBanners.length === 0 && !customPrompt) {
       toast({ variant: "destructive", title: "Input required", description: "Please select banners to analyze or provide a custom prompt." });
       return;
+    }
+
+    const allBannersForAI = [referenceBanner, ...comparisonBanners].filter(Boolean) as Banner[];
+    const hasHTML5Banner = allBannersForAI.some(b => b.url.startsWith('/api/preview'));
+
+    if (hasHTML5Banner) {
+        toast({
+            variant: "destructive",
+            title: "Unsupported Banner Type",
+            description: "AI Anomaly Detection currently only supports static images (JPG, PNG, GIF). Please deselect any HTML5 banners.",
+        });
+        return;
     }
     
     setIsLoading(true);
@@ -627,16 +610,15 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
 
   const isRunDisabled = () => {
     if (isLoading) return true;
-    if (customPrompt) return false;
+    if (customPrompt && selectedBanners.length > 0) return false;
     if (!referenceBanner) return true;
-    if (comparisonBanners.length === 0) return true;
     return false;
   };
 
   return (
     <div className="space-y-4 p-4">
       <h3 className="font-semibold">AI Anomaly Detection</h3>
-      <p className="text-sm text-muted-foreground">Select banners to compare, or just ask the AI a question about them.</p>
+      <p className="text-sm text-muted-foreground">Select banners to compare, or just ask the AI a question about them. <strong className="text-primary/80">Only static images supported.</strong></p>
       
       <div>
         <h4 className="mb-2 text-sm font-medium">Reference Banner</h4>
@@ -809,3 +791,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    

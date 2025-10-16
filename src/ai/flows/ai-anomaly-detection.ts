@@ -63,7 +63,12 @@ Comparison Banners:
 {{/each}}
 {{/if}}
 
-Anomalies:`, // eslint-disable-line prettier/prettier
+{{#if (and (not referenceBannerDataUri) (eq comparisonBannerDataUris.length 0))}}
+You have not been provided with any banner images. Please analyze the user's prompt: "{{customPrompt}}" and provide a helpful response based on the question.
+{{else}}
+Anomalies:
+{{/if}}
+`,
 });
 
 const detectBannerAnomaliesFlow = ai.defineFlow(
@@ -84,3 +89,5 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
     return output!;
   }
 );
+
+    
