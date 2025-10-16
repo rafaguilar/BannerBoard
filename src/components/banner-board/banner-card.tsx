@@ -95,7 +95,7 @@ export function BannerCard({
         fetch(event.data.dataUrl)
           .then(res => res.blob())
           .then(blob => {
-            saveAs(blob, `banner_${banner.round}_${banner.version}_${banner.width}x${banner.height}.png`);
+            saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
             toast({ title: "Screenshot captured!" });
           });
       } else if (event.data.action === 'screenshotFailed' && event.data.bannerId === banner.id) {
@@ -204,14 +204,16 @@ export function BannerCard({
           </TooltipTrigger>
           <TooltipContent>Reload</TooltipContent>
         </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleScreenshot}>
-              <Camera className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Screenshot</TooltipContent>
-        </Tooltip>
+        {isApiUrl && (
+            <Tooltip>
+            <TooltipTrigger asChild>
+                <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleScreenshot}>
+                <Camera className="h-4 w-4" />
+                </Button>
+            </TooltipTrigger>
+            <TooltipContent>Screenshot</TooltipContent>
+            </Tooltip>
+        )}
         <Dialog>
           <Tooltip>
             <TooltipTrigger asChild>
