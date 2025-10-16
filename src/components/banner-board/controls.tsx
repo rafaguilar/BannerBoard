@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -66,12 +66,40 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     resolver: zodResolver(bannerInputSchema),
     defaultValues: {
       urls: "",
-      width: 300,
-      height: 250,
+      width: undefined,
+      height: undefined,
       round: 1,
       version: 1,
     },
   });
+
+  const extractSizeFromUrl = (url: string): { width: number; height: number } | null => {
+    const match = url.match(/(\d+)[xX](\d+)/);
+    if (match && match[1] && match[2]) {
+      return {
+        width: parseInt(match[1], 10),
+        height: parseInt(match[2], 10),
+      };
+    }
+    return null;
+  };
+  
+  const handleUrlsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    form.setValue("urls", text);
+    const firstUrl = text.split("\n")[0];
+    if (firstUrl) {
+        const dimensions = extractSizeFromUrl(firstUrl);
+        if (dimensions) {
+            form.setValue("width", dimensions.width);
+            form.setValue("height", dimensions.height);
+        } else {
+             form.setValue("width", "" as any);
+             form.setValue("height", "" as any);
+        }
+    }
+  };
+
 
   function onSubmit(values: z.infer<typeof bannerInputSchema>) {
     const urls = values.urls.split("\n").filter((url) => url.trim() !== "");
@@ -83,7 +111,7 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       version: values.version,
     }));
     onAddBanners(newBanners);
-    form.reset({ ...values, urls: "" });
+    form.reset({ ...values, urls: "", width: undefined, height: undefined });
   }
 
   return (
@@ -97,9 +125,10 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
               <FormLabel>Banner URLs</FormLabel>
               <FormControl>
                 <Textarea
+                  {...field}
                   placeholder="Paste one URL per line"
                   className="min-h-[150px] font-mono text-xs"
-                  {...field}
+                  onChange={handleUrlsChange}
                 />
               </FormControl>
               <FormMessage />
@@ -110,14 +139,14 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           <FormField control={form.control} name="width" render={({ field }) => (
             <FormItem>
               <FormLabel>Width</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g. 300" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
           <FormField control={form.control} name="height" render={({ field }) => (
             <FormItem>
               <FormLabel>Height</FormLabel>
-              <FormControl><Input type="number" {...field} /></FormControl>
+              <FormControl><Input type="number" placeholder="e.g. 250" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
@@ -593,3 +622,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
