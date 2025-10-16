@@ -52,7 +52,7 @@ async function getAdSize(htmlPath: string): Promise<{ width: number; height: num
 }
 
 const INJECTED_SCRIPT = `
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise" crossorigin="anonymous" referrerpolicy="no-referrer"><\/script>
     <script>
         window.addEventListener('message', function(event) {
             if (event.data.action === 'captureScreenshot') {
