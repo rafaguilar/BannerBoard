@@ -526,7 +526,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
       const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handleMessage);
         reject(new Error('Screenshot request timed out.'));
-      }, 10000); // 10 seconds timeout
+      }, 20000); // 20 seconds timeout
       
       window.addEventListener('message', handleMessage);
 
@@ -571,19 +571,29 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
   const { toast } = useToast();
 
   const handleRunDetection = async () => {
-    if (!referenceBanner || comparisonBanners.length === 0) {
-      toast({ variant: "destructive", title: "Selection required", description: "Please select a reference and at least one comparison banner." });
+    if (!referenceBanner && !customPrompt) {
+      toast({ variant: "destructive", title: "Selection required", description: "Please select a reference banner or provide a custom prompt." });
       return;
     }
+    if (referenceBanner && comparisonBanners.length === 0 && !customPrompt) {
+       toast({ variant: "destructive", title: "Selection required", description: "Please select at least one comparison banner or provide a custom prompt." });
+      return;
+    }
+
     setIsLoading(true);
     setAnomalies([]);
     setIsModalOpen(true);
 
     try {
-      const [refDataUri, ...compDataUris] = await Promise.all([
+      let refDataUri = "";
+      let compDataUris: string[] = [];
+
+      if (referenceBanner) {
+        [refDataUri, ...compDataUris] = await Promise.all([
           getBannerDataUri(referenceBanner),
           ...comparisonBanners.map(getBannerDataUri)
-      ]);
+        ]);
+      }
 
       const result = await detectBannerAnomalies({
         referenceBannerDataUri: refDataUri,
@@ -608,17 +618,38 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
   
   const selectableBanners = selectedBanners;
 
+  const handleSetReference = (banner: Banner) => {
+    setReferenceBanner(banner);
+    // A banner cannot be a reference and a comparison at the same time
+    setComparisonBanners(prev => prev.filter(cb => cb.id !== banner.id));
+  };
+
+  const handleToggleComparison = (banner: Banner) => {
+    setComparisonBanners(prev => 
+      prev.some(cb => cb.id === banner.id) 
+        ? prev.filter(cb => cb.id !== banner.id) 
+        : [...prev, banner]
+    );
+  };
+
+  const isRunDisabled = () => {
+    if (customPrompt) return false; // Always allow if there's a prompt
+    if (!referenceBanner) return true; // Must have a reference if no prompt
+    if (comparisonBanners.length === 0) return true; // Must have comparisons if no prompt
+    return false;
+  };
+
   return (
     <div className="space-y-4 p-4">
       <h3 className="font-semibold">AI Anomaly Detection</h3>
-      <p className="text-sm text-muted-foreground">Select banners, then optionally provide a prompt to guide the AI analysis.</p>
+      <p className="text-sm text-muted-foreground">Select banners to compare, or just ask the AI a question about them.</p>
       
       <div>
         <h4 className="mb-2 text-sm font-medium">Reference Banner</h4>
         {selectableBanners.length === 0 ? <p className="text-xs text-muted-foreground">Select banners in workspace first.</p> :
         <div className="flex flex-wrap gap-2">
             {selectableBanners.map(b => (
-                <Button key={b.id} variant={referenceBanner?.id === b.id ? "default" : "outline"} size="sm" onClick={() => setReferenceBanner(b)}>
+                <Button key={b.id} variant={referenceBanner?.id === b.id ? "default" : "outline"} size="sm" onClick={() => handleSetReference(b)}>
                     R{b.round} V{b.version} - {b.width}x{b.height}
                 </Button>
             ))}
@@ -628,12 +659,11 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
 
        <div>
         <h4 className="mb-2 text-sm font-medium">Comparison Banners</h4>
-        {selectableBanners.filter(b => b.id !== referenceBanner?.id).length === 0 ? <p className="text-xs text-muted-foreground">Select more banners to compare.</p> :
+        {selectableBanners.filter(b => b.id !== referenceBanner?.id).length === 0 && (!referenceBanner) ? <p className="text-xs text-muted-foreground">Select a reference banner first.</p> :
+         selectableBanners.filter(b => b.id !== referenceBanner?.id).length === 0 && (referenceBanner) ? <p className="text-xs text-muted-foreground">No other banners selected to compare.</p> :
         <div className="flex flex-wrap gap-2">
             {selectableBanners.filter(b => b.id !== referenceBanner?.id).map(b => (
-                <Button key={b.id} variant={comparisonBanners.some(cb => cb.id === b.id) ? "default" : "outline"} size="sm" onClick={() => {
-                    setComparisonBanners(prev => prev.some(cb => cb.id === b.id) ? prev.filter(cb => cb.id !== b.id) : [...prev, b]);
-                }}>
+                <Button key={b.id} variant={comparisonBanners.some(cb => cb.id === b.id) ? "default" : "outline"} size="sm" onClick={() => handleToggleComparison(b)}>
                     R{b.round} V{b.version} - {b.width}x{b.height}
                 </Button>
             ))}
@@ -642,17 +672,17 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       </div>
 
       <div>
-        <Label htmlFor="ai-prompt" className="text-sm font-medium">Custom Prompt (Optional)</Label>
+        <Label htmlFor="ai-prompt" className="text-sm font-medium">Custom Prompt</Label>
         <Textarea
           id="ai-prompt"
-          placeholder="e.g., 'Check if all banners have the same copy.'"
+          placeholder="e.g., 'Do all banners have the same copy?'"
           className="mt-2"
           value={customPrompt}
           onChange={(e) => setCustomPrompt(e.target.value)}
         />
       </div>
       
-      <Button onClick={handleRunDetection} disabled={!referenceBanner || comparisonBanners.length === 0} className="w-full">
+      <Button onClick={handleRunDetection} disabled={isRunDisabled()} className="w-full">
         <BrainCircuit className="mr-2 h-4 w-4" /> Run Detection
       </Button>
 
@@ -684,7 +714,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
                     <BrainCircuit className="h-4 w-4" />
                     <AlertTitle>No Anomalies Found!</AlertTitle>
                     <AlertDescription>
-                      The AI did not detect any significant visual inconsistencies.
+                      The AI did not detect any significant visual inconsistencies based on your request.
                     </AlertDescription>
                   </Alert>
                 )
