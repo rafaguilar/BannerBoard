@@ -1,4 +1,5 @@
 
+
 "use client";
 
 import React, { useState, useEffect } from "react";
@@ -499,56 +500,66 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 // --- AI Anomaly Panel ---
 
 const getBannerDataUri = async (banner: Banner): Promise<string> => {
+  const isApiUrl = banner.url.startsWith('/api/preview');
+  const isDataUrl = banner.url.startsWith('data:');
+
+  if (isDataUrl) {
+    return Promise.resolve(banner.url);
+  }
+
+  // Handle HTML5 banners
+  if (isApiUrl) {
     return new Promise((resolve, reject) => {
-      const isApiUrl = banner.url.startsWith('/api/preview');
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
-  
       if (!element) {
         return reject(new Error(`Could not find element for banner ${banner.id}`));
       }
-  
+
       const handleMessage = (event: MessageEvent) => {
-        if (event.data?.action === 'screenshotCaptured' && event.data?.bannerId === banner.id) {
+        if (event.data?.bannerId !== banner.id) return;
+
+        if (event.data?.action === 'screenshotCaptured') {
           window.removeEventListener('message', handleMessage);
           resolve(event.data.dataUrl);
         }
-        if (event.data?.action === 'screenshotFailed' && event.data?.bannerId === banner.id) {
+        if (event.data?.action === 'screenshotFailed') {
           window.removeEventListener('message', handleMessage);
-          reject(new Error(event.data.error));
+          reject(new Error(event.data.error || 'Screenshot failed in iframe'));
         }
       };
-  
+
       window.addEventListener('message', handleMessage);
       
-      // Set a timeout to reject the promise if no response is received
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handleMessage);
         reject(new Error('Screenshot request timed out.'));
       }, 10000); // 10 seconds timeout
 
-      if (isApiUrl && element.contentWindow) {
-         element.contentWindow.postMessage({
-            action: 'captureScreenshot',
-            bannerId: banner.id,
-            width: banner.width,
-            height: banner.height,
-         }, '*');
-      } else {
-         // Fallback for non-API url banners (data urls, external urls)
-         // This has limitations (CORS, iframe content) and may result in blank images.
-         import('html2canvas').then(html2canvas => {
-            const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
-            if (!innerElement) {
-                window.removeEventListener('message', handleMessage);
-                return reject(new Error('Could not find inner element for screenshot.'));
-            }
-            html2canvas.default(innerElement, { allowTaint: true, useCORS: true, logging: false })
-              .then(canvas => resolve(canvas.toDataURL("image/png")))
-              .catch(reject);
-         });
-      }
+      element.contentWindow?.postMessage({
+        action: 'captureScreenshot',
+        bannerId: banner.id,
+        width: banner.width,
+        height: banner.height,
+      }, '*');
     });
+  }
+
+  // Handle external URLs (best effort with html2canvas)
+  return new Promise(async (resolve, reject) => {
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
+      if (!innerElement) {
+        return reject(new Error('Could not find inner element for screenshot.'));
+      }
+      const canvas = await html2canvas(innerElement, { allowTaint: true, useCORS: true, logging: false });
+      resolve(canvas.toDataURL("image/png"));
+    } catch(e) {
+      reject(e);
+    }
+  });
 };
+
 
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
   const [referenceBanner, setReferenceBanner] = useState<Banner | null>(null);
@@ -764,4 +775,5 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
 
