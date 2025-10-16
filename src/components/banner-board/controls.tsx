@@ -48,6 +48,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { detectBannerAnomalies } from "@/ai/flows/ai-anomaly-detection";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { cn } from "@/lib/utils";
 
 
 // --- Banner Input Panel ---
@@ -200,6 +201,7 @@ const localUploadSchema = z.object({
 
 function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
   const { toast } = useToast();
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
   const form = useForm<z.infer<typeof localUploadSchema>>({
     resolver: zodResolver(localUploadSchema),
     defaultValues: {
@@ -208,8 +210,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     },
   });
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     const { round, version } = form.getValues();
@@ -249,7 +250,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           toast({
             variant: "destructive",
             title: "No Images Found",
-            description: "No valid image files were selected.",
+            description: "No valid image files were selected or dropped.",
           });
         }
       })
@@ -261,9 +262,30 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           description: "There was an error reading the files.",
         });
       });
-      
-    // Reset file input
-    e.target.value = '';
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFiles(e.target.files);
+    e.target.value = ''; // Reset file input
+  };
+  
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+    handleFiles(e.dataTransfer.files);
+  };
+  
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
   };
 
   return (
@@ -289,7 +311,15 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
           <FormLabel htmlFor="file-upload">Banner Files</FormLabel>
           <div className="mt-2">
             <label htmlFor="file-upload" className="relative cursor-pointer rounded-md bg-background font-medium text-primary hover:text-primary/90 focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-              <div className="flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center">
+              <div 
+                className={cn(
+                  "flex w-full items-center justify-center rounded-md border-2 border-dashed border-input px-6 py-10 text-center transition-colors",
+                  isDraggingOver && "border-primary bg-accent"
+                )}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+              >
                 <div className="text-center">
                   <FileUp className="mx-auto h-12 w-12 text-muted-foreground" />
                   <p className="mt-2 text-sm text-muted-foreground">Click to upload or drag and drop</p>
@@ -687,5 +717,7 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
 
     
