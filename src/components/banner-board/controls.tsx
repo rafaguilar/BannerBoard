@@ -506,18 +506,20 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
     if (banner.url.startsWith('data:')) {
       return resolve(banner.url);
     }
-
+    
     // Case 2: The banner is an uploaded HTML5 ad.
     if (banner.url.startsWith('/api/preview')) {
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
-      if (!element?.contentWindow) {
+      if (!element) {
+        return reject(new Error(`Could not find iframe for banner ${banner.id}`));
+      }
+      if (!element.contentWindow) {
         return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
       }
 
       const handleMessage = (event: MessageEvent) => {
         if (event.data?.bannerId !== banner.id) return;
-
-        if (event.data?.action === 'screenshotCaptured') {
+        if (event.data?.action === 'screenshotCapturedForAI') {
           window.removeEventListener('message', handleMessage);
           clearTimeout(timeoutId);
           resolve(event.data.dataUrl);
@@ -528,23 +530,23 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
           reject(new Error(event.data.error || 'Screenshot failed inside iframe'));
         }
       };
-
+      
       const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handleMessage);
         reject(new Error('Screenshot request timed out.'));
       }, 10000); // 10 seconds timeout
-
+      
       window.addEventListener('message', handleMessage);
       
       element.contentWindow.postMessage({
-        action: 'captureScreenshot',
+        action: 'captureScreenshotForAI',
         bannerId: banner.id,
         width: banner.width,
         height: banner.height,
       }, '*');
       return;
     }
-    
+
     // Case 3: The banner is an external URL. Use html2canvas from the outside.
     try {
       const html2canvas = (await import('html2canvas')).default;

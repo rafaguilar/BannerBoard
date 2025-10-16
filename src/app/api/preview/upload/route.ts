@@ -64,8 +64,9 @@ const INJECTED_SCRIPT = `
           window.addEventListener('message', function(event) {
               if (!event.data || !event.data.action) return;
               const bannerId = event.data.bannerId;
+              const action = event.data.action;
 
-              if (event.data.action === 'captureScreenshot') {
+              if (action === 'captureScreenshot' || action === 'captureScreenshotForAI') {
                   html2canvas(document.body, {
                       allowTaint: true,
                       useCORS: true,
@@ -76,8 +77,9 @@ const INJECTED_SCRIPT = `
                       windowHeight: event.data.height,
                   }).then(function(canvas) {
                       const dataUrl = canvas.toDataURL('image/png');
+                      const responseAction = action === 'captureScreenshot' ? 'screenshotCaptured' : 'screenshotCapturedForAI';
                       window.parent.postMessage({
-                          action: 'screenshotCaptured',
+                          action: responseAction,
                           dataUrl: dataUrl,
                           bannerId: bannerId
                       }, '*');
@@ -89,7 +91,7 @@ const INJECTED_SCRIPT = `
                           bannerId: bannerId
                       }, '*');
                   });
-              } else if (event.data.action === 'play') {
+              } else if (action === 'play') {
                   let played = false;
                   if (masterTimeline) {
                     masterTimeline.resume();
@@ -108,7 +110,7 @@ const INJECTED_SCRIPT = `
                     window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard play/resume method found.' }, '*');
                   }
 
-              } else if (event.data.action === 'pause') {
+              } else if (action === 'pause') {
                   var gsap = window.gsap || window.TweenLite || window.TweenMax;
                   var timeline = window.TimelineLite || window.TimelineMax;
                   let paused = false;
