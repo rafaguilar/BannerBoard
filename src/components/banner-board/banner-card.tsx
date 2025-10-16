@@ -2,7 +2,6 @@
 "use client";
 
 import React from 'react';
-import html2canvas from "html2canvas";
 import { saveAs } from "file-saver";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
@@ -52,7 +51,7 @@ export function BannerCard({
   
   const [isLoading, setIsLoading] = React.useState(true);
   const [isError, setIsError] = React.useState(false);
-  const cardRef = React.useRef<HTMLDivElement>(null);
+  const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
 
   const {
@@ -69,36 +68,56 @@ export function BannerCard({
     transition,
     zIndex: isDragging ? 10 : undefined,
   };
+
+  const handleScreenshot = async () => {
+    if (isApiUrl && iframeRef.current?.contentWindow) {
+      iframeRef.current.contentWindow.postMessage({
+        action: 'captureScreenshot',
+        bannerId: banner.id,
+        width: banner.width,
+        height: banner.height,
+      }, '*');
+    } else {
+      toast({
+        variant: "destructive",
+        title: "Screenshot Failed",
+        description: "Screenshots are only supported for uploaded HTML5 banners.",
+      });
+    }
+  };
+
+  React.useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // Basic security check
+      if (!event.data || !event.data.action) return;
+
+      if (event.data.action === 'screenshotCaptured' && event.data.bannerId === banner.id) {
+        fetch(event.data.dataUrl)
+          .then(res => res.blob())
+          .then(blob => {
+            saveAs(blob, `banner_${banner.round}_${banner.version}_${banner.width}x${banner.height}.png`);
+            toast({ title: "Screenshot captured!" });
+          });
+      } else if (event.data.action === 'screenshotFailed' && event.data.bannerId === banner.id) {
+          console.error("Screenshot failed inside iframe:", event.data.error);
+          toast({
+              variant: "destructive",
+              title: "Screenshot Failed",
+              description: "Could not capture screenshot. The banner may have complex content or security restrictions.",
+          });
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [banner, toast]);
   
   const handleReload = () => {
     setIsError(false);
     setIsLoading(true);
     setIframeKey(oldKey => oldKey + '-reload');
-  };
-
-  const handleScreenshot = async () => {
-    if (cardRef.current) {
-      try {
-        const canvas = await html2canvas(cardRef.current, {
-          allowTaint: true,
-          useCORS: true,
-          logging: true,
-        });
-        canvas.toBlob((blob) => {
-          if (blob) {
-            saveAs(blob, `banner_${banner.round}_${banner.version}_${banner.width}x${banner.height}.png`);
-          }
-        });
-        toast({ title: "Screenshot captured!" });
-      } catch (error) {
-        console.error("Screenshot failed:", error);
-        toast({
-          variant: "destructive",
-          title: "Screenshot Failed",
-          description: "Could not capture screenshot. This can happen with complex HTML5 content.",
-        });
-      }
-    }
   };
 
   const handleLoad = () => {
@@ -111,6 +130,7 @@ export function BannerCard({
   }
   
   const iframeProps = {
+    ref: iframeRef,
     width: banner.width,
     height: banner.height,
     scrolling: "no" as const,
@@ -135,7 +155,6 @@ export function BannerCard({
       )}
     >
       <div
-        ref={cardRef}
         data-banner-card-inner
         className="overflow-hidden rounded-md bg-muted"
         style={{ width: banner.width, height: banner.height }}
@@ -163,7 +182,7 @@ export function BannerCard({
         {isDataUrl ? (
            <iframe {...iframeProps} key={iframeKey} src={banner.url} />
         ) : (
-             <iframe {...iframeProps} key={iframeKey} src={banner.url} sandbox={isApiUrl ? "allow-scripts allow-same-origin" : undefined} />
+             <iframe {...iframeProps} key={iframeKey} src={banner.url} sandbox={isApiUrl ? "allow-scripts allow-same-origin allow-popups" : "allow-scripts"} />
         )}
       </div>
 
@@ -224,7 +243,7 @@ export function BannerCard({
                     style={{ width: banner.width, height: banner.height }}
                     scrolling="no"
                     title="Fullscreen Banner"
-                    sandbox={isApiUrl ? "allow-scripts allow-same-origin" : undefined}
+                    sandbox={isApiUrl ? "allow-scripts allow-same-origin allow-popups" : "allow-scripts"}
                 />
             )}
           </DialogContent>

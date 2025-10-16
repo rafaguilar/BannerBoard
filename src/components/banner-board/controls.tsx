@@ -47,7 +47,6 @@ import {
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { detectBannerAnomalies } from "@/ai/flows/ai-anomaly-detection";
-import html2canvas from "html2canvas";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
@@ -406,6 +405,58 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- AI Anomaly Panel ---
 
+const getBannerDataUri = async (banner: Banner): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const isApiUrl = banner.url.startsWith('/api/preview');
+      const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
+  
+      if (!element) {
+        return reject(new Error(`Could not find element for banner ${banner.id}`));
+      }
+  
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.action === 'screenshotCaptured' && event.data?.bannerId === banner.id) {
+          window.removeEventListener('message', handleMessage);
+          resolve(event.data.dataUrl);
+        }
+        if (event.data?.action === 'screenshotFailed' && event.data?.bannerId === banner.id) {
+          window.removeEventListener('message', handleMessage);
+          reject(new Error(event.data.error));
+        }
+      };
+  
+      window.addEventListener('message', handleMessage);
+      
+      // Set a timeout to reject the promise if no response is received
+      setTimeout(() => {
+        window.removeEventListener('message', handleMessage);
+        reject(new Error('Screenshot request timed out.'));
+      }, 10000); // 10 seconds timeout
+
+      if (isApiUrl && element.contentWindow) {
+         element.contentWindow.postMessage({
+            action: 'captureScreenshot',
+            bannerId: banner.id,
+            width: banner.width,
+            height: banner.height,
+         }, '*');
+      } else {
+         // Fallback for non-API url banners (data urls, external urls)
+         // This has limitations (CORS, iframe content) and may result in blank images.
+         import('html2canvas').then(html2canvas => {
+            const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
+            if (!innerElement) {
+                window.removeEventListener('message', handleMessage);
+                return reject(new Error('Could not find inner element for screenshot.'));
+            }
+            html2canvas.default(innerElement, { allowTaint: true, useCORS: true, logging: false })
+              .then(canvas => resolve(canvas.toDataURL("image/png")))
+              .catch(reject);
+         });
+      }
+    });
+};
+
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
   const [referenceBanner, setReferenceBanner] = useState<Banner | null>(null);
   const [comparisonBanners, setComparisonBanners] = useState<Banner[]>([]);
@@ -424,16 +475,10 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
     setIsModalOpen(true);
 
     try {
-      const getBannerDataUri = async (bannerId: string): Promise<string> => {
-        const element = document.querySelector(`[data-sortable-id="${bannerId}"] [data-banner-card-inner]`) as HTMLElement;
-        if (!element) throw new Error(`Could not find element for banner ${bannerId}`);
-        const canvas = await html2canvas(element, { allowTaint: true, useCORS: true, logging: false });
-        return canvas.toDataURL("image/png");
-      };
 
-      const referenceBannerDataUri = await getBannerDataUri(referenceBanner.id);
+      const referenceBannerDataUri = await getBannerDataUri(referenceBanner);
       const comparisonBannerDataUris = await Promise.all(
-        comparisonBanners.map(b => getBannerDataUri(b.id))
+        comparisonBanners.map(b => getBannerDataUri(b))
       );
 
       const result = await detectBannerAnomalies({
@@ -447,9 +492,9 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       toast({
         variant: "destructive",
         title: "AI Analysis Failed",
-        description: "Could not perform anomaly detection. This can happen with banners from external domains due to security restrictions.",
+        description: (error as Error).message || "Could not perform anomaly detection.",
       });
-      setAnomalies(["Error: Could not process banners for AI analysis."]);
+      setAnomalies([`Error: ${(error as Error).message || 'Could not process banners for AI analysis.'}`]);
     } finally {
       setIsLoading(false);
     }
@@ -468,7 +513,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
         <div className="flex flex-wrap gap-2">
             {selectableBanners.map(b => (
                 <Button key={b.id} variant={referenceBanner?.id === b.id ? "default" : "outline"} size="sm" onClick={() => setReferenceBanner(b)}>
-                    {b.width}x{b.height}
+                    R{b.round} V{b.version} - {b.width}x{b.height}
                 </Button>
             ))}
         </div>
@@ -483,7 +528,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
                 <Button key={b.id} variant={comparisonBanners.some(cb => cb.id === b.id) ? "default" : "outline"} size="sm" onClick={() => {
                     setComparisonBanners(prev => prev.some(cb => cb.id === b.id) ? prev.filter(cb => cb.id !== b.id) : [...prev, b]);
                 }}>
-                    {b.width}x{b.height}
+                    R{b.round} V{b.version} - {b.width}x{b.height}
                 </Button>
             ))}
         </div>
@@ -622,5 +667,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    

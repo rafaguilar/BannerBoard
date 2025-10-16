@@ -51,6 +51,48 @@ async function getAdSize(htmlPath: string): Promise<{ width: number; height: num
     }
 }
 
+const INJECTED_SCRIPT = `
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+        window.addEventListener('message', function(event) {
+            if (event.data.action === 'captureScreenshot') {
+                html2canvas(document.body, {
+                    allowTaint: true,
+                    useCORS: true,
+                    logging: false,
+                    width: event.data.width,
+                    height: event.data.height,
+                    windowWidth: event.data.width,
+                    windowHeight: event.data.height,
+                }).then(function(canvas) {
+                    const dataUrl = canvas.toDataURL('image/png');
+                    window.parent.postMessage({
+                        action: 'screenshotCaptured',
+                        dataUrl: dataUrl,
+                        bannerId: event.data.bannerId
+                    }, '*');
+                }).catch(function(error) {
+                    console.error('html2canvas error:', error);
+                    window.parent.postMessage({
+                        action: 'screenshotFailed',
+                        error: 'html2canvas failed to execute.',
+                        bannerId: event.data.bannerId
+                    }, '*');
+                });
+            }
+        });
+    <\/script>
+`;
+
+async function injectScreenshotScript(htmlPath: string): Promise<void> {
+    try {
+        let htmlContent = await fs.readFile(htmlPath, 'utf-8');
+        htmlContent = htmlContent.replace('</head>', `${INJECTED_SCRIPT}</head>`);
+        await fs.writeFile(htmlPath, htmlContent, 'utf-8');
+    } catch (error) {
+        console.warn('Could not inject screenshot script:', error);
+    }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -82,6 +124,8 @@ export async function POST(req: NextRequest) {
     if (!dimensions) {
         return NextResponse.json({ error: 'Could not determine banner dimensions from <meta name="ad.size"> tag.' }, { status: 400 });
     }
+
+    await injectScreenshotScript(fullHtmlPath);
 
     const previewUrl = `/api/preview/${bannerId}/${htmlFile}`;
 
