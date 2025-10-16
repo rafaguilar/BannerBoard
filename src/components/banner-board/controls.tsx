@@ -500,17 +500,17 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 // --- AI Anomaly Panel ---
 
 const getBannerDataUri = (banner: Banner): Promise<string> => {
-  const isDataUrl = banner.url.startsWith('data:');
-  const isApiUrl = banner.url.startsWith('/api/preview');
+  return new Promise(async (resolve, reject) => {
+    const isDataUrl = banner.url.startsWith('data:');
+    const isApiUrl = banner.url.startsWith('/api/preview');
 
-  // Case 1: The banner is an uploaded image (data URL). It's already a Data URI.
-  if (isDataUrl) {
-    return Promise.resolve(banner.url);
-  }
+    // Case 1: The banner is an uploaded image (data URL).
+    if (isDataUrl) {
+      return resolve(banner.url);
+    }
 
-  // Case 2: The banner is an uploaded HTML5 ad. Use postMessage.
-  if (isApiUrl) {
-    return new Promise((resolve, reject) => {
+    // Case 2: The banner is an uploaded HTML5 ad.
+    if (isApiUrl) {
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
       if (!element?.contentWindow) {
         return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
@@ -530,7 +530,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
           reject(new Error(event.data.error || 'Screenshot failed inside iframe'));
         }
       };
-      
+
       const timeoutId = setTimeout(() => {
         window.removeEventListener('message', handleMessage);
         reject(new Error('Screenshot request timed out.'));
@@ -544,11 +544,11 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
         width: banner.width,
         height: banner.height,
       }, '*');
-    });
-  }
 
-  // Case 3: The banner is an external URL. Use html2canvas from the outside.
-  return new Promise(async (resolve, reject) => {
+      return;
+    }
+    
+    // Case 3: The banner is an external URL. Use html2canvas from the outside.
     try {
       const html2canvas = (await import('html2canvas')).default;
       const innerElement = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
@@ -575,6 +575,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
   const [referenceBanner, setReferenceBanner] = useState<Banner | null>(null);
   const [comparisonBanners, setComparisonBanners] = useState<Banner[]>([]);
+  const [customPrompt, setCustomPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [anomalies, setAnomalies] = useState<string[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -599,6 +600,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
       const result = await detectBannerAnomalies({
         referenceBannerDataUri,
         comparisonBannerDataUris,
+        customPrompt: customPrompt || undefined,
       });
 
       setAnomalies(result.anomalies);
@@ -620,7 +622,7 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
   return (
     <div className="space-y-4 p-4">
       <h3 className="font-semibold">AI Anomaly Detection</h3>
-      <p className="text-sm text-muted-foreground">Select a reference banner and one or more comparison banners from your selected banners in the workspace.</p>
+      <p className="text-sm text-muted-foreground">Select banners, then optionally provide a prompt to guide the AI analysis.</p>
       
       <div>
         <h4 className="mb-2 text-sm font-medium">Reference Banner</h4>
@@ -648,6 +650,17 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
             ))}
         </div>
         }
+      </div>
+
+      <div>
+        <FormLabel htmlFor="ai-prompt">Custom Prompt (Optional)</FormLabel>
+        <Textarea
+          id="ai-prompt"
+          placeholder="e.g., 'Check if all banners have the same copy.'"
+          className="mt-2"
+          value={customPrompt}
+          onChange={(e) => setCustomPrompt(e.target.value)}
+        />
       </div>
       
       <Button onClick={handleRunDetection} disabled={!referenceBanner || comparisonBanners.length === 0} className="w-full">
@@ -786,6 +799,7 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
 
 
 

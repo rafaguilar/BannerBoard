@@ -22,6 +22,10 @@ const DetectBannerAnomaliesInputSchema = z.object({
     .describe(
       'An array of banner images to compare against the reference banner, as data URIs that must include a MIME type and use Base64 encoding. Expected format: \'data:<mimetype>;base64,<encoded_data>\'.' // eslint-disable-line prettier/prettier
     ),
+  customPrompt: z
+    .string()
+    .optional()
+    .describe('A specific user prompt to guide the anomaly detection.'),
 });
 export type DetectBannerAnomaliesInput = z.infer<typeof DetectBannerAnomaliesInputSchema>;
 
@@ -42,7 +46,22 @@ const prompt = ai.definePrompt({
   name: 'detectBannerAnomaliesPrompt',
   input: {schema: DetectBannerAnomaliesInputSchema},
   output: {schema: DetectBannerAnomaliesOutputSchema},
-  prompt: `You are an expert QA tester specializing in detecting visual anomalies in advertising banners.\n\nYou will be provided with a reference banner image and a list of comparison banner images. Your task is to identify and describe any visual inconsistencies or anomalies present in the comparison banners compared to the reference banner.\n\nReference Banner: {{media url=referenceBannerDataUri}}\n\nComparison Banners:\n{{#each comparisonBannerDataUris}}- {{media url=this}}\n{{/each}}\n\nAnomalies:`, // eslint-disable-line prettier/prettier
+  prompt: `You are an expert QA tester specializing in detecting visual anomalies in advertising banners.
+
+You will be provided with a reference banner image and a list of comparison banner images. 
+{{#if customPrompt}}
+Your task is to focus on the user's specific request: "{{customPrompt}}". Analyze the banners based on this request and provide a detailed answer.
+{{else}}
+Your task is to identify and describe any visual inconsistencies or anomalies present in the comparison banners compared to the reference banner.
+{{/if}}
+
+Reference Banner: {{media url=referenceBannerDataUri}}
+
+Comparison Banners:
+{{#each comparisonBannerDataUris}}- {{media url=this}}
+{{/each}}
+
+Anomalies:`, // eslint-disable-line prettier/prettier
 });
 
 const detectBannerAnomaliesFlow = ai.defineFlow(
