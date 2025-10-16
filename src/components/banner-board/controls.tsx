@@ -6,6 +6,7 @@ import React, { useState, useEffect } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import html2canvas from "html2canvas";
 import {
   Tabs,
   TabsContent,
@@ -212,7 +213,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     },
   });
 
-  const handleFiles = (files: FileList | null) => {
+  const processFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
 
     const { round, version } = form.getValues();
@@ -267,7 +268,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFiles(e.target.files);
+    processFiles(e.target.files);
     e.target.value = ''; // Reset file input
   };
   
@@ -275,7 +276,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
-    handleFiles(e.dataTransfer.files);
+    processFiles(e.dataTransfer.files);
   };
   
   const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
@@ -500,6 +501,66 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- AI Anomaly Panel ---
 
+const getBannerDataUri = (banner: Banner): Promise<string> => {
+  // Case 1: Data URL (already a base64 image)
+  if (banner.url.startsWith('data:')) {
+    return Promise.resolve(banner.url);
+  }
+
+  // Case 2: HTML5 Banner (from /api/preview)
+  if (banner.url.startsWith('/api/preview')) {
+    return new Promise((resolve, reject) => {
+      const iframe = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
+      if (!iframe?.contentWindow) {
+        return reject(new Error(`Could not find iframe content for banner ${banner.id}`));
+      }
+
+      const handleMessage = (event: MessageEvent) => {
+        if (event.data?.action === 'screenshotCapturedForAI' && event.data?.bannerId === banner.id) {
+          window.removeEventListener('message', handleMessage);
+          clearTimeout(timeoutId);
+          resolve(event.data.dataUrl);
+        }
+      };
+
+      const timeoutId = setTimeout(() => {
+        window.removeEventListener('message', handleMessage);
+        reject(new Error('Screenshot request timed out.'));
+      }, 10000); // 10 seconds timeout
+      
+      window.addEventListener('message', handleMessage);
+
+      iframe.contentWindow.postMessage({
+        action: 'captureScreenshotForAI',
+        bannerId: banner.id,
+        width: banner.width,
+        height: banner.height,
+      }, '*');
+    });
+  }
+
+  // Case 3: External URL or other
+  return new Promise((resolve, reject) => {
+    const element = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
+    if (!element) {
+      return reject(new Error(`Could not find banner card element for banner ${banner.id}`));
+    }
+    html2canvas(element, {
+      allowTaint: true,
+      useCORS: true,
+      logging: false,
+      width: banner.width,
+      height: banner.height,
+    }).then(canvas => {
+      resolve(canvas.toDataURL('image/png'));
+    }).catch(error => {
+        console.error('html2canvas error:', error);
+        reject(new Error('Failed to capture banner with html2canvas.'));
+    });
+  });
+};
+
+
 function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBanners: Banner[] }) {
   const [referenceBanner, setReferenceBanner] = useState<Banner | null>(null);
   const [comparisonBanners, setComparisonBanners] = useState<Banner[]>([]);
@@ -519,22 +580,27 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
     setIsModalOpen(true);
 
     try {
-      // Pass empty strings for the data URIs as screenshots are disabled.
+      const [refDataUri, ...compDataUris] = await Promise.all([
+          getBannerDataUri(referenceBanner),
+          ...comparisonBanners.map(getBannerDataUri)
+      ]);
+
       const result = await detectBannerAnomalies({
-        referenceBannerDataUri: "",
-        comparisonBannerDataUris: comparisonBanners.map(() => ""),
+        referenceBannerDataUri: refDataUri,
+        comparisonBannerDataUris: compDataUris,
         customPrompt: customPrompt || undefined,
       });
 
       setAnomalies(result.anomalies);
     } catch (error) {
       console.error("AI Anomaly detection failed:", error);
+      const errorMessage = (error instanceof Error) ? error.message : "An unknown error occurred during AI analysis.";
       toast({
         variant: "destructive",
         title: "AI Analysis Failed",
-        description: (error as Error).message || "Could not perform anomaly detection.",
+        description: errorMessage,
       });
-      setAnomalies([`Error: ${(error as Error).message || 'Could not process banners for AI analysis.'}`]);
+      setAnomalies([`Error: ${errorMessage}`]);
     } finally {
       setIsLoading(false);
     }

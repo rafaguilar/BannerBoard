@@ -79,10 +79,15 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
     outputSchema: DetectBannerAnomaliesOutputSchema,
   },
   async input => {
-    // If no image data is provided, return a specific message.
-    if (!input.referenceBannerDataUri && !input.customPrompt) {
+    // If no image data is provided, but there's a custom prompt, let the model respond.
+    if (!input.referenceBannerDataUri && input.customPrompt) {
+        const {output} = await prompt(input);
+        return output!;
+    }
+    // If no image data AND no prompt, guide the user.
+    if (!input.referenceBannerDataUri) {
       return {
-        anomalies: ['Visual analysis could not be performed because the screenshot process is disabled. Please provide a custom prompt for other types of analysis.'],
+        anomalies: ['Cannot perform visual analysis because no banner images were provided. Please select banners to analyze.'],
       };
     }
     
