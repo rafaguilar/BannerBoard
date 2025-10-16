@@ -3,6 +3,7 @@
 
 import React from 'react';
 import { saveAs } from "file-saver";
+import html2canvas from 'html2canvas';
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import {
@@ -80,6 +81,38 @@ export function BannerCard({
         width: banner.width,
         height: banner.height,
       }, '*');
+    } else {
+       const element = document.querySelector(`[data-sortable-id="${banner.id}"] [data-banner-card-inner]`) as HTMLElement;
+        if (element) {
+          try {
+            const canvas = await html2canvas(element, {
+              allowTaint: true,
+              useCORS: true,
+              logging: false,
+              width: banner.width,
+              height: banner.height,
+            });
+            const dataUrl = canvas.toDataURL('image/png');
+             fetch(dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
+              toast({ title: "Screenshot captured!" });
+            });
+          } catch(e) {
+             toast({
+              variant: "destructive",
+              title: "Screenshot Failed",
+              description: "Could not capture screenshot for this banner.",
+            });
+          }
+        } else {
+           toast({
+            variant: "destructive",
+            title: "Screenshot Failed",
+            description: "Could not find the banner element to capture.",
+          });
+        }
     }
   };
 
@@ -107,6 +140,9 @@ export function BannerCard({
               saveAs(blob, `banner_${banner.width}x${banner.height}.png`);
               toast({ title: "Screenshot captured!" });
             });
+          break;
+        case 'screenshotCapturedForAI':
+          // This case is handled by the AI panel, do nothing here to prevent downloads
           break;
         case 'screenshotFailed':
           console.error("Screenshot failed inside iframe:", error);
@@ -227,25 +263,23 @@ export function BannerCard({
           <TooltipContent>Reload</TooltipContent>
         </Tooltip>
         {isApiUrl && (
-          <>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleTogglePlay}>
-                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{isPlaying ? "Pause" : "Play"}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
+          <Tooltip>
             <TooltipTrigger asChild>
-                <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleScreenshot}>
-                <Camera className="h-4 w-4" />
-                </Button>
+              <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleTogglePlay}>
+                {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+              </Button>
             </TooltipTrigger>
-            <TooltipContent>Screenshot</TooltipContent>
-            </Tooltip>
-          </>
+            <TooltipContent>{isPlaying ? "Pause" : "Play"}</TooltipContent>
+          </Tooltip>
         )}
+        <Tooltip>
+        <TooltipTrigger asChild>
+            <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleScreenshot}>
+            <Camera className="h-4 w-4" />
+            </Button>
+        </TooltipTrigger>
+        <TooltipContent>Screenshot</TooltipContent>
+        </Tooltip>
         <Dialog>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -301,3 +335,5 @@ export function BannerCard({
     </div>
   );
 }
+
+    
