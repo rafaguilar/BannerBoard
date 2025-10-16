@@ -499,16 +499,16 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- AI Anomaly Panel ---
 
-const getBannerDataUri = async (banner: Banner): Promise<string> => {
-  const isApiUrl = banner.url.startsWith('/api/preview');
+const getBannerDataUri = (banner: Banner): Promise<string> => {
   const isDataUrl = banner.url.startsWith('data:');
+  const isApiUrl = banner.url.startsWith('/api/preview');
 
   // Case 1: The banner is an uploaded image (data URL). It's already a Data URI.
   if (isDataUrl) {
-    return banner.url;
+    return Promise.resolve(banner.url);
   }
 
-  // Case 2: The banner is an uploaded HTML5 ad. Use postMessage to get a screenshot from inside the iframe.
+  // Case 2: The banner is an uploaded HTML5 ad. Use postMessage.
   if (isApiUrl) {
     return new Promise((resolve, reject) => {
       const element = document.querySelector(`[data-sortable-id="${banner.id}"] iframe`) as HTMLIFrameElement;
@@ -786,6 +786,7 @@ export function MainControls(props: MainControlsProps) {
     
 
     
+
 
 
 
