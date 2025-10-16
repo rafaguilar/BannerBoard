@@ -84,6 +84,18 @@ const INJECTED_SCRIPT = `
                           bannerId: event.data.bannerId
                       }, '*');
                   });
+              } else if (event.data && event.data.action === 'play') {
+                  if (typeof window.play === 'function') {
+                      window.play();
+                  } else if (window.timeline && typeof window.timeline.play === 'function') {
+                      window.timeline.play();
+                  }
+              } else if (event.data && event.data.action === 'pause') {
+                  if (typeof window.pause === 'function') {
+                      window.pause();
+                  } else if (window.timeline && typeof window.timeline.pause === 'function') {
+                      window.timeline.pause();
+                  }
               }
           });
         };

@@ -17,6 +17,8 @@ import {
   Expand,
   Loader,
   AlertTriangle,
+  Play,
+  Pause,
 } from "lucide-react";
 import type { Banner } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -51,6 +53,7 @@ export function BannerCard({
   
   const [isLoading, setIsLoading] = React.useState(true);
   const [isError, setIsError] = React.useState(false);
+  const [isPlaying, setIsPlaying] = React.useState(true);
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
 
@@ -86,6 +89,14 @@ export function BannerCard({
     }
   };
 
+  const handleTogglePlay = () => {
+    if (isApiUrl && iframeRef.current?.contentWindow) {
+      const action = isPlaying ? 'pause' : 'play';
+      iframeRef.current.contentWindow.postMessage({ action }, '*');
+      setIsPlaying(!isPlaying);
+    }
+  };
+
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Basic security check
@@ -117,6 +128,7 @@ export function BannerCard({
   const handleReload = () => {
     setIsError(false);
     setIsLoading(true);
+    setIsPlaying(true);
     setIframeKey(oldKey => oldKey + '-reload');
   };
 
@@ -205,6 +217,15 @@ export function BannerCard({
           <TooltipContent>Reload</TooltipContent>
         </Tooltip>
         {isApiUrl && (
+          <>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleTogglePlay}>
+                  {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{isPlaying ? "Pause" : "Play"}</TooltipContent>
+            </Tooltip>
             <Tooltip>
             <TooltipTrigger asChild>
                 <Button size="icon" variant="secondary" className="h-8 w-8" onClick={handleScreenshot}>
@@ -213,6 +234,7 @@ export function BannerCard({
             </TooltipTrigger>
             <TooltipContent>Screenshot</TooltipContent>
             </Tooltip>
+          </>
         )}
         <Dialog>
           <Tooltip>
