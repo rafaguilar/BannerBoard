@@ -47,25 +47,20 @@ const prompt = ai.definePrompt({
   input: {schema: DetectBannerAnomaliesInputSchema},
   output: {schema: DetectBannerAnomaliesOutputSchema},
   prompt: `You are an expert QA tester specializing in detecting visual anomalies in advertising banners.
-{{#if referenceBannerDataUri}}
-You will be provided with a reference banner image and a list of comparison banner images. 
 {{#if customPrompt}}
 Your task is to focus on the user's specific request: "{{customPrompt}}". Analyze the banners based on this request and provide a detailed answer.
 {{else}}
 Your task is to identify and describe any visual inconsistencies or anomalies present in the comparison banners compared to the reference banner.
 {{/if}}
 
+{{#if referenceBannerDataUri}}
 Reference Banner: {{media url=referenceBannerDataUri}}
+{{/if}}
 
+{{#if comparisonBannerDataUris.length}}
 Comparison Banners:
 {{#each comparisonBannerDataUris}}- {{media url=this}}
 {{/each}}
-{{else}}
-{{#if customPrompt}}
-Please respond to the user's prompt directly: "{{customPrompt}}". If the prompt requires visual analysis, state that you cannot perform the analysis without banner images.
-{{else}}
-Please inform the user that to perform an anomaly detection, they need to provide banner images.
-{{/if}}
 {{/if}}
 
 Anomalies:`, // eslint-disable-line prettier/prettier
@@ -78,15 +73,10 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
     outputSchema: DetectBannerAnomaliesOutputSchema,
   },
   async input => {
-    // If no image data is provided, but there's a custom prompt, let the model respond.
-    if (!input.referenceBannerDataUri && input.customPrompt) {
-        const {output} = await prompt(input);
-        return output!;
-    }
-    // If no image data AND no prompt, guide the user.
-    if (!input.referenceBannerDataUri && input.comparisonBannerDataUris.length === 0) {
+    // If no images and no prompt, guide the user.
+    if (!input.referenceBannerDataUri && input.comparisonBannerDataUris.length === 0 && !input.customPrompt) {
       return {
-        anomalies: ['Cannot perform visual analysis because no banner images were provided. Please select banners to analyze.'],
+        anomalies: ['Cannot perform analysis because no banner images were provided and no prompt was given. Please select banners to analyze or ask a question.'],
       };
     }
     

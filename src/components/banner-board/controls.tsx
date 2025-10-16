@@ -531,7 +531,7 @@ const getBannerDataUri = (banner: Banner): Promise<string> => {
       window.addEventListener('message', handleMessage);
 
       iframe.contentWindow.postMessage({
-        action: 'captureScreenshotForAI',
+        action: 'screenshotCapturedForAI',
         bannerId: banner.id,
         width: banner.width,
         height: banner.height,
@@ -571,29 +571,22 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
   const { toast } = useToast();
 
   const handleRunDetection = async () => {
-    if (!referenceBanner && !customPrompt) {
-      toast({ variant: "destructive", title: "Selection required", description: "Please select a reference banner or provide a custom prompt." });
+    if (!referenceBanner && comparisonBanners.length === 0 && !customPrompt) {
+      toast({ variant: "destructive", title: "Input required", description: "Please select banners to analyze or provide a custom prompt." });
       return;
     }
-    if (referenceBanner && comparisonBanners.length === 0 && !customPrompt) {
-       toast({ variant: "destructive", title: "Selection required", description: "Please select at least one comparison banner or provide a custom prompt." });
-      return;
-    }
-
+    
     setIsLoading(true);
     setAnomalies([]);
     setIsModalOpen(true);
 
     try {
       let refDataUri = "";
-      let compDataUris: string[] = [];
-
       if (referenceBanner) {
-         refDataUri = await getBannerDataUri(referenceBanner);
+        refDataUri = await getBannerDataUri(referenceBanner);
       }
-      if (comparisonBanners.length > 0) {
-        compDataUris = await Promise.all(comparisonBanners.map(getBannerDataUri));
-      }
+      
+      const compDataUris = await Promise.all(comparisonBanners.map(getBannerDataUri));
       
       const result = await detectBannerAnomalies({
         referenceBannerDataUri: refDataUri,
@@ -634,9 +627,9 @@ function AIPanel({ banners, selectedBanners }: { banners: Banner[], selectedBann
 
   const isRunDisabled = () => {
     if (isLoading) return true;
-    if (customPrompt) return false; // Always allow if there's a prompt
-    if (!referenceBanner) return true; // Must have a reference if no prompt
-    if (comparisonBanners.length === 0) return true; // Must have comparisons if no prompt
+    if (customPrompt) return false;
+    if (!referenceBanner) return true;
+    if (comparisonBanners.length === 0) return true;
     return false;
   };
 
