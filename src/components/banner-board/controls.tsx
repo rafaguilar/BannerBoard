@@ -66,8 +66,8 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     resolver: zodResolver(bannerInputSchema),
     defaultValues: {
       urls: "",
-      width: undefined,
-      height: undefined,
+      width: "" as any,
+      height: "" as any,
       round: 1,
       version: 1,
     },
@@ -111,7 +111,7 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       version: values.version,
     }));
     onAddBanners(newBanners);
-    form.reset({ ...values, urls: "", width: undefined, height: undefined });
+    form.reset({ ...values, urls: "", width: "" as any, height: "" as any });
   }
 
   return (
