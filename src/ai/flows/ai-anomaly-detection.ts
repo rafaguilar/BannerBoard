@@ -63,11 +63,7 @@ Comparison Banners:
 {{/each}}
 {{/if}}
 
-{{#if (and (not referenceBannerDataUri) (eq comparisonBannerDataUris.length 0))}}
-You have not been provided with any banner images. Please analyze the user's prompt: "{{customPrompt}}" and provide a helpful response based on the question.
-{{else}}
 Anomalies:
-{{/if}}
 `,
 });
 
@@ -85,9 +81,19 @@ const detectBannerAnomaliesFlow = ai.defineFlow(
       };
     }
     
+    // If no images but there is a prompt
+    if (!input.referenceBannerDataUri && input.comparisonBannerDataUris.length === 0 && input.customPrompt) {
+        const { output } = await prompt(input);
+        // Prepend a note if AI gives a canned response about missing images.
+        if (output?.anomalies.some(a => a.includes("provide banner images"))) {
+             return {
+                anomalies: [`I can't visually compare anything, but here is an answer based on your question: "${input.customPrompt}".\n\n` + output.anomalies.join('\n')]
+             }
+        }
+        return output!;
+    }
+    
     const {output} = await prompt(input);
     return output!;
   }
 );
-
-    
