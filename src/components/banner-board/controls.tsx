@@ -54,25 +54,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 const bannerInputSchema = z.object({
   urls: z.string().min(1, "Please enter at least one URL."),
-  width: z.coerce.number().min(1, "Width must be at least 1."),
-  height: z.coerce.number().min(1, "Height must be at least 1."),
+  width: z.coerce.number().min(1, "Width must be at least 1.").optional().or(z.literal('')),
+  height: z.coerce.number().min(1, "Height must be at least 1.").optional().or(z.literal('')),
   round: z.coerce.number().min(0, "Round must be non-negative."),
   version: z.coerce.number().min(0, "Version must be non-negative."),
 });
 
-function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
-  const form = useForm<z.infer<typeof bannerInputSchema>>({
-    resolver: zodResolver(bannerInputSchema),
-    defaultValues: {
-      urls: "",
-      width: "" as any,
-      height: "" as any,
-      round: 1,
-      version: 1,
-    },
-  });
-
-  const extractSizeFromUrl = (url: string): { width: number; height: number } | null => {
+const extractSizeFromUrl = (url: string): { width: number; height: number } | null => {
     const match = url.match(/(\d+)[xX](\d+)/);
     if (match && match[1] && match[2]) {
       return {
@@ -81,7 +69,21 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
       };
     }
     return null;
-  };
+};
+
+
+function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
+  const { toast } = useToast();
+  const form = useForm<z.infer<typeof bannerInputSchema>>({
+    resolver: zodResolver(bannerInputSchema),
+    defaultValues: {
+      urls: "",
+      width: "",
+      height: "",
+      round: 1,
+      version: 1,
+    },
+  });
   
   const handleUrlsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
@@ -93,8 +95,8 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             form.setValue("width", dimensions.width);
             form.setValue("height", dimensions.height);
         } else {
-             form.setValue("width", "" as any);
-             form.setValue("height", "" as any);
+             form.setValue("width", "");
+             form.setValue("height", "");
         }
     }
   };
@@ -102,15 +104,33 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
   function onSubmit(values: z.infer<typeof bannerInputSchema>) {
     const urls = values.urls.split("\n").filter((url) => url.trim() !== "");
-    const newBanners = urls.map((url) => ({
-      url,
-      width: values.width,
-      height: values.height,
-      round: values.round,
-      version: values.version,
-    }));
-    onAddBanners(newBanners);
-    form.reset({ ...values, urls: "", width: "" as any, height: "" as any });
+    const newBanners = urls.map((url) => {
+        const extractedSize = extractSizeFromUrl(url);
+        const width = extractedSize?.width || values.width;
+        const height = extractedSize?.height || values.height;
+
+        if (!width || !height) {
+            toast({
+                variant: "destructive",
+                title: "Missing Dimensions",
+                description: `Could not determine dimensions for ${url}. Please set a fallback width and height.`
+            });
+            return null;
+        }
+
+        return {
+          url,
+          width: Number(width),
+          height: Number(height),
+          round: values.round,
+          version: values.version,
+        };
+    }).filter(Boolean) as Omit<Banner, "id">[];
+
+    if (newBanners.length > 0) {
+      onAddBanners(newBanners);
+      form.reset({ ...values, urls: "", width: "", height: "" });
+    }
   }
 
   return (
@@ -137,14 +157,14 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         <div className="grid grid-cols-2 gap-4">
           <FormField control={form.control} name="width" render={({ field }) => (
             <FormItem>
-              <FormLabel>Width</FormLabel>
+              <FormLabel>Fallback Width</FormLabel>
               <FormControl><Input type="number" placeholder="e.g. 300" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
           )} />
           <FormField control={form.control} name="height" render={({ field }) => (
             <FormItem>
-              <FormLabel>Height</FormLabel>
+              <FormLabel>Fallback Height</FormLabel>
               <FormControl><Input type="number" placeholder="e.g. 250" {...field} /></FormControl>
               <FormMessage />
             </FormItem>
@@ -667,3 +687,5 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
+
+    
