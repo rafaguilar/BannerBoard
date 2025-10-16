@@ -52,35 +52,44 @@ async function getAdSize(htmlPath: string): Promise<{ width: number; height: num
 }
 
 const INJECTED_SCRIPT = `
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise" crossorigin="anonymous" referrerpolicy="no-referrer"><\/script>
     <script>
-        window.addEventListener('message', function(event) {
-            if (event.data.action === 'captureScreenshot') {
-                html2canvas(document.body, {
-                    allowTaint: true,
-                    useCORS: true,
-                    logging: false,
-                    width: event.data.width,
-                    height: event.data.height,
-                    windowWidth: event.data.width,
-                    windowHeight: event.data.height,
-                }).then(function(canvas) {
-                    const dataUrl = canvas.toDataURL('image/png');
-                    window.parent.postMessage({
-                        action: 'screenshotCaptured',
-                        dataUrl: dataUrl,
-                        bannerId: event.data.bannerId
-                    }, '*');
-                }).catch(function(error) {
-                    console.error('html2canvas error:', error);
-                    window.parent.postMessage({
-                        action: 'screenshotFailed',
-                        error: 'html2canvas failed to execute.',
-                        bannerId: event.data.bannerId
-                    }, '*');
-                });
-            }
-        });
+      (function() {
+        const script = document.createElement('script');
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js";
+        script.integrity = "sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgazulU9MLAuF/+0element/expr/Global_Objects/Promise";
+        script.crossOrigin = "anonymous";
+        script.referrerPolicy = "no-referrer";
+        script.onload = function() {
+          window.addEventListener('message', function(event) {
+              if (event.data && event.data.action === 'captureScreenshot') {
+                  html2canvas(document.body, {
+                      allowTaint: true,
+                      useCORS: true,
+                      logging: false,
+                      width: event.data.width,
+                      height: event.data.height,
+                      windowWidth: event.data.width,
+                      windowHeight: event.data.height,
+                  }).then(function(canvas) {
+                      const dataUrl = canvas.toDataURL('image/png');
+                      window.parent.postMessage({
+                          action: 'screenshotCaptured',
+                          dataUrl: dataUrl,
+                          bannerId: event.data.bannerId
+                      }, '*');
+                  }).catch(function(error) {
+                      console.error('html2canvas error:', error);
+                      window.parent.postMessage({
+                          action: 'screenshotFailed',
+                          error: 'html2canvas failed to execute.',
+                          bannerId: event.data.bannerId
+                      }, '*');
+                  });
+              }
+          });
+        };
+        document.head.appendChild(script);
+      })();
     <\/script>
 `;
 
