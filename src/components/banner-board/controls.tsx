@@ -262,8 +262,6 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
 // --- HTML5 Upload Panel ---
 const html5UploadSchema = z.object({
-    width: z.coerce.number().min(1, "Width must be at least 1."),
-    height: z.coerce.number().min(1, "Height must be at least 1."),
     round: z.coerce.number().min(0, "Round must be non-negative."),
     version: z.coerce.number().min(0, "Version must be non-negative."),
 });
@@ -274,8 +272,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     const form = useForm<z.infer<typeof html5UploadSchema>>({
         resolver: zodResolver(html5UploadSchema),
         defaultValues: {
-            width: 300,
-            height: 250,
             round: 1,
             version: 1,
         },
@@ -293,7 +289,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
         setIsUploading(true);
 
-        const { round, version, width, height } = form.getValues();
+        const { round, version } = form.getValues();
         
         const formData = new FormData();
         formData.append('file', file);
@@ -309,11 +305,14 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                 throw new Error(errorData.error || 'Upload failed');
             }
 
-            const { url } = await response.json();
+            const { url, width, height } = await response.json();
 
             onAddBanners([{
-                url: url,
-                width, height, round, version,
+                url,
+                width,
+                height,
+                round, 
+                version,
             }]);
 
             toast({ title: "HTML5 Banner Added", description: `Banner ${file.name} is being prepared.` });
@@ -332,20 +331,6 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         <Form {...form}>
             <form className="space-y-4 p-4">
                 <div className="grid grid-cols-2 gap-4">
-                    <FormField control={form.control} name="width" render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Width</FormLabel>
-                            <FormControl><Input type="number" {...field} /></FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )} />
-                    <FormField control={form.control} name="height" render={({ field }) => (
-                        <FormItem>
-                            <FormLabel>Height</FormLabel>
-                            <FormControl><Input type="number" {...field} /></FormControl>
-                            <FormMessage />
-                        </FormItem>
-                    )} />
                     <FormField control={form.control} name="round" render={({ field }) => (
                         <FormItem>
                             <FormLabel>Round</FormLabel>
@@ -383,7 +368,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                     </div>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                    Upload a zip file containing an HTML5 banner (with an index.html).
+                    Upload a zip file containing an HTML5 banner. Dimensions will be detected automatically from the ad.size meta tag.
                 </p>
             </form>
         </Form>
