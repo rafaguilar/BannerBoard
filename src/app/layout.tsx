@@ -35,6 +35,8 @@ export default function RootLayout({
         </Suspense>
         {children}
         <Toaster />
+        {/* 100% privacy-first analytics */}
+        <script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
       </body>
     </html>
   );
