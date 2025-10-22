@@ -33,17 +33,32 @@ async function findHtmlFile(dir: string): Promise<string | null> {
     return null;
 }
 
-// Function to extract ad size from meta tag
+// Function to extract ad size from meta tag or canvas
 async function getAdSize(htmlPath: string): Promise<{ width: number; height: number } | null> {
     try {
         const htmlContent = await fs.readFile(htmlPath, 'utf-8');
-        const match = htmlContent.match(/<meta\s+name=["']ad.size["']\s+content=["']width=(\d+),height=(\d+)["']\s*\/?>/);
-        if (match && match[1] && match[2]) {
+        
+        // 1. Try standard ad.size meta tag (with optional space)
+        const metaMatch = htmlContent.match(/<meta\s+name=["']ad.size["']\s+content=["']width=(\d+),\s*height=(\d+)["']\s*\/?>/);
+        if (metaMatch && metaMatch[1] && metaMatch[2]) {
             return {
-                width: parseInt(match[1], 10),
-                height: parseInt(match[2], 10),
+                width: parseInt(metaMatch[1], 10),
+                height: parseInt(metaMatch[2], 10),
             };
         }
+
+        // 2. Fallback for Adobe Animate: check for authoring tool and find canvas
+        const isAdobeAnimate = /<meta\s+name=["']authoring_tool["']\s+content=["']Adobe_Animate_CC["']/.test(htmlContent);
+        if (isAdobeAnimate) {
+            const canvasMatch = htmlContent.match(/<canvas\s+.*?width=["'](\d+)["']\s+height=["'](\d+)["']/);
+             if (canvasMatch && canvasMatch[1] && canvasMatch[2]) {
+                return {
+                    width: parseInt(canvasMatch[1], 10),
+                    height: parseInt(canvasMatch[2], 10),
+                };
+            }
+        }
+
         return null;
     } catch (error) {
         console.warn('Could not read HTML to determine size:', error);
@@ -138,16 +153,22 @@ const INJECTED_SCRIPT = `
                   }
               }
           });
+          
+           window.addEventListener('load', function() {
+                window.parent.postMessage({ action: 'bannerReady', bannerId: '%%BANNER_ID%%' }, '*');
+            }, false);
+
         };
         document.head.appendChild(script);
       })();
     <\/script>
 `;
 
-async function injectScreenshotScript(htmlPath: string): Promise<void> {
+async function injectScreenshotScript(htmlPath: string, bannerId: string): Promise<void> {
     try {
         let htmlContent = await fs.readFile(htmlPath, 'utf-8');
-        htmlContent = htmlContent.replace('</head>', `${INJECTED_SCRIPT}</head>`);
+        const finalScript = INJECTED_SCRIPT.replace('%%BANNER_ID%%', bannerId);
+        htmlContent = htmlContent.replace('</head>', `${finalScript}</head>`);
         await fs.writeFile(htmlPath, htmlContent, 'utf-8');
     } catch (error) {
         console.warn('Could not inject screenshot script:', error);
@@ -182,10 +203,10 @@ export async function POST(req: NextRequest) {
     const dimensions = await getAdSize(fullHtmlPath);
 
     if (!dimensions) {
-        return NextResponse.json({ error: 'Could not determine banner dimensions from <meta name="ad.size"> tag.' }, { status: 400 });
+        return NextResponse.json({ error: 'Could not determine banner dimensions. Ensure a <meta name="ad.size"> tag or a valid canvas for Adobe Animate ads is present.' }, { status: 400 });
     }
 
-    await injectScreenshotScript(fullHtmlPath);
+    await injectScreenshotScript(fullHtmlPath, bannerId);
 
     const previewUrl = `/api/preview/${bannerId}/${htmlFile}`;
 
