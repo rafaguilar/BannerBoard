@@ -75,35 +75,53 @@ const INJECTED_SCRIPT = `
         script.referrerPolicy = "no-referrer";
         script.onload = function() {
           var masterTimeline;
+          var lastReceivedAction = null;
+          var timelinePollInterval;
 
-          function getMasterTimeline() {
-              if (masterTimeline) return masterTimeline;
+          function findMasterTimeline() {
               var gsap = window.gsap || window.TweenLite || window.TweenMax;
               var timeline = window.TimelineLite || window.TimelineMax;
+
+              if (masterTimeline) return masterTimeline;
+
               if (timeline && typeof timeline.exportRoot === 'function') {
                   masterTimeline = timeline.exportRoot();
               } else if (gsap && gsap.globalTimeline) {
                   masterTimeline = gsap.globalTimeline;
               }
+              
+              if (masterTimeline) {
+                  clearInterval(timelinePollInterval);
+                  window.parent.postMessage({ action: 'bannerReady', bannerId: '%%BANNER_ID%%' }, '*');
+                  if(lastReceivedAction) {
+                    handleAction(lastReceivedAction.action, lastReceivedAction.bannerId, lastReceivedAction.groupId);
+                    lastReceivedAction = null; // Clear after processing
+                  }
+              }
               return masterTimeline;
           }
 
-          window.addEventListener('message', function(event) {
-              if (!event.data || !event.data.action) return;
-              const bannerId = event.data.bannerId;
-              const action = event.data.action;
+          function handleAction(action, bannerId, groupId) {
+              const mt = findMasterTimeline();
+
+              // If timeline not ready yet, queue the action.
+              if (!mt) {
+                  lastReceivedAction = { action, bannerId, groupId };
+                  return;
+              }
 
               // Individual controls
               if (bannerId === '%%BANNER_ID%%') {
                   if (action === 'captureScreenshot' || action === 'captureScreenshotForAI') {
+                       const eventData = window.event.data; // Need to get the data from the triggering event
                       html2canvas(document.body, {
                           allowTaint: true,
                           useCORS: true,
                           logging: false,
-                          width: event.data.width,
-                          height: event.data.height,
-                          windowWidth: event.data.width,
-                          windowHeight: event.data.height,
+                          width: eventData.width,
+                          height: eventData.height,
+                          windowWidth: eventData.width,
+                          windowHeight: eventData.height,
                       }).then(function(canvas) {
                           const dataUrl = canvas.toDataURL('image/png');
                           const responseAction = action === 'captureScreenshot' ? 'screenshotCaptured' : 'screenshotCapturedForAI';
@@ -121,52 +139,16 @@ const INJECTED_SCRIPT = `
                           }, '*');
                       });
                   } else if (action === 'play') {
-                      let played = false;
-                      const mt = getMasterTimeline();
-                      if (mt) {
-                        mt.resume();
-                        played = true;
-                      } else if (typeof window.play === 'function') {
-                        window.play();
-                        played = true;
-                      } else if (window.timeline && typeof window.timeline.play === 'function') {
-                        window.timeline.play();
-                        played = true;
-                      }
-                      
-                      if(played) {
+                        mt.play();
                         window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: true }, '*');
-                      } else {
-                        window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard play/resume method found.' }, '*');
-                      }
-
                   } else if (action === 'pause') {
-                      let paused = false;
-                      const mt = getMasterTimeline();
-                      if (mt) {
                         mt.pause();
-                        paused = true;
-                      } else if (typeof window.pause === 'function') {
-                        window.pause();
-                        paused = true;
-                      } else if (window.timeline && typeof window.timeline.pause === 'function') {
-                        window.timeline.pause();
-                        paused = true;
-                      }
-
-                       if(paused) {
                         window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: false }, '*');
-                      } else {
-                        window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard pause method found.' }, '*');
-                      }
                   }
               }
 
               // Global controls for groups
-              if (event.data.groupId && event.data.groupId === '%%GROUP_ID%%') {
-                  const mt = getMasterTimeline();
-                  if (!mt) return;
-
+              if (groupId && groupId === '%%GROUP_ID%%') {
                   if(action === 'global-play') {
                       mt.play();
                   } else if (action === 'global-pause') {
@@ -175,10 +157,16 @@ const INJECTED_SCRIPT = `
                       mt.restart(true);
                   }
               }
+          }
+
+          window.addEventListener('message', function(event) {
+              if (!event.data || !event.data.action) return;
+              handleAction(event.data.action, event.data.bannerId, event.data.groupId);
           });
           
            window.addEventListener('load', function() {
-                window.parent.postMessage({ action: 'bannerReady', bannerId: '%%BANNER_ID%%' }, '*');
+                // Start polling for the master timeline
+                timelinePollInterval = setInterval(findMasterTimeline, 100);
             }, false);
 
         };
