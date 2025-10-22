@@ -23,6 +23,7 @@ interface BannerGridProps {
   onDeselectAll: () => void;
   onSetBannerAsReady: (id: string) => void;
   onRemoveSelectedBanners: () => void;
+  onReloadGroup: (groupId: string) => void;
 }
 
 export function BannerGrid({
@@ -35,7 +36,8 @@ export function BannerGrid({
   onSelectAll,
   onDeselectAll,
   onSetBannerAsReady,
-  onRemoveSelectedBanners
+  onRemoveSelectedBanners,
+  onReloadGroup,
 }: BannerGridProps) {
   if (banners.length === 0) {
     return (
@@ -65,13 +67,13 @@ export function BannerGrid({
               </Button>
             )}
           </div>
-          <GlobalControls banners={banners} readyBanners={readyBanners} />
+          <GlobalControls banners={banners} readyBanners={readyBanners} onReloadGroup={onReloadGroup} />
         </div>
       <SortableContext items={banners.map((b) => b.id)} strategy={rectSortingStrategy}>
         <div className="flex flex-wrap items-start gap-4">
           {banners.map((banner) => (
             <BannerCard
-              key={banner.id}
+              key={banner.key || banner.id}
               banner={banner}
               isSelected={selectedBannerIds.has(banner.id)}
               onToggleSelection={onToggleSelection}

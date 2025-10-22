@@ -58,7 +58,11 @@ export function BannerCard({
   const [isError, setIsError] = React.useState(false);
   const [isPlaying, setIsPlaying] = React.useState(false); // Start in paused state
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
-  const [iframeKey, setIframeKey] = React.useState(banner.id);
+  const [iframeKey, setIframeKey] = React.useState(banner.key || banner.id);
+
+  React.useEffect(() => {
+    setIframeKey(banner.key || banner.id);
+  }, [banner.key, banner.id]);
 
   const {
     attributes,
@@ -340,5 +344,3 @@ export function BannerCard({
     </div>
   );
 }
-
-    

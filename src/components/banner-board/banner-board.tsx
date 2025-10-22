@@ -96,6 +96,23 @@ export function BannerBoard() {
     );
   }, []);
 
+  const handleReloadGroup = useCallback((groupId: string) => {
+    setBanners(prevBanners => 
+        prevBanners.map(banner => 
+            banner.groupId === groupId ? { ...banner, key: uuidv4() } : banner
+        )
+    );
+    setReadyBanners(prevReady => {
+      const newReadyBanners = new Set(prevReady);
+      banners.forEach(banner => {
+        if (banner.groupId === groupId) {
+          newReadyBanners.delete(banner.id);
+        }
+      });
+      return newReadyBanners;
+    });
+  }, [banners]);
+
   const handleRemoveBanner = useCallback((bannerId: string) => {
     setBanners((prev) => prev.filter((b) => b.id !== bannerId));
     setSelectedBannerIds((prev) => {
@@ -239,6 +256,7 @@ export function BannerBoard() {
             onDeselectAll={handleDeselectAll}
             onSetBannerAsReady={handleSetBannerAsReady}
             onRemoveSelectedBanners={handleRemoveSelectedBanners}
+            onReloadGroup={handleReloadGroup}
           />
         </DndContext>
       </SidebarInset>

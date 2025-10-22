@@ -7,6 +7,7 @@ export type Banner = {
   round: number;
   version: number;
   groupId?: string;
+  key?: string;
 };
 
 export type Preset = {

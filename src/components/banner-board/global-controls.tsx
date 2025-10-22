@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 interface GlobalControlsProps {
   banners: Banner[];
   readyBanners: Set<string>;
+  onReloadGroup: (groupId: string) => void;
 }
 
 function findLargestGroupId(banners: Banner[]): string | null {
@@ -43,7 +44,7 @@ function findLargestGroupId(banners: Banner[]): string | null {
   return largestGroupId;
 }
 
-export function GlobalControls({ banners, readyBanners }: GlobalControlsProps) {
+export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalControlsProps) {
   const largestGroupId = useMemo(() => findLargestGroupId(banners), [banners]);
 
   if (!largestGroupId) {
@@ -53,7 +54,7 @@ export function GlobalControls({ banners, readyBanners }: GlobalControlsProps) {
   const groupBanners = banners.filter(b => b.groupId === largestGroupId);
   const allInGroupReady = groupBanners.every(b => readyBanners.has(b.id));
 
-  const handleGlobalAction = (action: 'global-play' | 'global-pause' | 'global-restart') => {
+  const handleGlobalAction = (action: 'global-play' | 'global-pause') => {
     if (!allInGroupReady) return;
     
     // Post message to all iframes. The injected script will filter by groupId.
@@ -67,6 +68,12 @@ export function GlobalControls({ banners, readyBanners }: GlobalControlsProps) {
       }
     });
   };
+
+  const handleGlobalRestart = () => {
+    if (largestGroupId) {
+        onReloadGroup(largestGroupId);
+    }
+  }
 
   const firstBanner = groupBanners[0];
 
@@ -98,7 +105,7 @@ export function GlobalControls({ banners, readyBanners }: GlobalControlsProps) {
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleGlobalAction('global-restart')} disabled={!allInGroupReady}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleGlobalRestart}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
