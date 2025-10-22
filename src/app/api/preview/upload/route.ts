@@ -81,8 +81,6 @@ const INJECTED_SCRIPT = `
           function findMasterTimeline() {
               var gsap = window.gsap || window.TweenLite || window.TweenMax;
               var timeline = window.TimelineLite || window.TimelineMax;
-
-              // Do not cache the timeline instance; find it fresh each time.
               var mt = null;
 
               if (timeline && typeof timeline.exportRoot === 'function') {
@@ -92,7 +90,6 @@ const INJECTED_SCRIPT = `
               }
               
               if (mt && !masterTimeline) {
-                  // This block runs only once to fire the ready signal.
                   masterTimeline = mt;
                   clearInterval(timelinePollInterval);
                   // Pause the animation as soon as it's ready
@@ -103,11 +100,11 @@ const INJECTED_SCRIPT = `
                     lastReceivedAction = null; // Clear after processing
                   }
               }
-              return mt;
+              return mt; // Always return the freshly found timeline
           }
 
           function handleAction(action, bannerId, groupId) {
-              // Always get a fresh reference to the timeline.
+              // Always get a fresh reference to the timeline for every action.
               const mt = findMasterTimeline();
 
               // If timeline not ready yet, queue the action.
