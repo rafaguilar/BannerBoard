@@ -3,7 +3,7 @@
 
 import React, { useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Play, Pause, RefreshCw, Loader } from 'lucide-react';
+import { Play, Pause, RefreshCw, Loader, Zap } from 'lucide-react';
 import type { Banner } from '@/lib/types';
 import {
   Tooltip,
@@ -69,6 +69,13 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
     });
   };
 
+  const handleHardReload = () => {
+    if (largestGroupId) {
+      onReloadGroup(largestGroupId);
+    }
+  };
+
+
   const firstBanner = groupBanners[0];
 
   return (
@@ -103,7 +110,15 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
               <RefreshCw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Restart All</TooltipContent>
+          <TooltipContent>Restart Animations (Soft)</TooltipContent>
+        </Tooltip>
+         <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleHardReload}>
+              <Zap className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Hard Reload Banners</TooltipContent>
         </Tooltip>
       </div>
     </TooltipProvider>

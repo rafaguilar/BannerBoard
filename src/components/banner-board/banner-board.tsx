@@ -128,7 +128,6 @@ export function BannerBoard() {
   }, []);
 
   const handleRemoveSelectedBanners = useCallback(() => {
-    const originalCount = banners.length;
     const selectedCount = selectedBannerIds.size;
     setBanners((prev) => prev.filter((b) => !selectedBannerIds.has(b.id)));
     setReadyBanners((prev) => {
@@ -141,7 +140,7 @@ export function BannerBoard() {
         title: "Banners Removed",
         description: `${selectedCount} banner(s) have been removed from the workspace.`,
     });
-  }, [banners.length, selectedBannerIds, toast]);
+  }, [selectedBannerIds, toast]);
 
 
   const handleClearBanners = useCallback(() => {
