@@ -37,6 +37,7 @@ import {
   X,
   FileUp,
   FileArchive,
+  Info,
 } from "lucide-react";
 import type { Banner, Preset } from "@/lib/types";
 import {
@@ -347,7 +348,7 @@ const html5UploadSchema = z.object({
     version: z.coerce.number().min(0, "Version must be non-negative."),
 });
 
-function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
+function HTML5UploadPanel({ banners, onAddBanners }: { banners: Banner[], onAddBanners: (banners: Omit<Banner, "id">[]) => void }) {
     const { toast } = useToast();
     const [isUploading, setIsUploading] = useState(false);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -362,6 +363,17 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
     
     const processFiles = async (files: FileList | null) => {
         if (!files || files.length === 0) return;
+
+        const alreadyHasGroup = banners.some(b => b.groupId);
+        if (alreadyHasGroup) {
+            const proceed = window.confirm(
+                "A group of banners with global controls already exists.\n\nAdding new banners will create a separate group that won't be affected by the current global controls.\n\nDo you want to continue?"
+            );
+            if (!proceed) {
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                return;
+            }
+        }
 
         const { round, version } = form.getValues();
         const groupId = uuidv4(); // Create a single group ID for this batch
@@ -500,9 +512,13 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
                         </label>
                     </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                    Upload one or more zip files containing HTML5 banners. Dimensions will be detected automatically from the ad.size meta tag.
-                </p>
+                <Alert className="mt-4">
+                  <Info className="h-4 w-4" />
+                  <AlertTitle>Global Controls</AlertTitle>
+                  <AlertDescription>
+                    To use the global Play/Pause/Restart controls, upload all related banners in a single drag & drop action.
+                  </AlertDescription>
+                </Alert>
             </form>
         </Form>
     );
@@ -784,7 +800,7 @@ export function MainControls(props: MainControlsProps) {
           <LocalUploadPanel onAddBanners={props.onAddBanners} />
         </TabsContent>
         <TabsContent value="html5">
-          <HTML5UploadPanel onAddBanners={props.onAddBanners} />
+          <HTML5UploadPanel banners={props.banners} onAddBanners={props.onAddBanners} />
         </TabsContent>
         <TabsContent value="ai">
           <AIPanel banners={props.banners} selectedBanners={props.selectedBanners} />
