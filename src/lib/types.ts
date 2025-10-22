@@ -1,3 +1,4 @@
+
 export type Banner = {
   id: string;
   url: string;

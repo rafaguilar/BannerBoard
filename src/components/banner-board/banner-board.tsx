@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -34,6 +35,7 @@ export function BannerBoard() {
   const [selectedBannerIds, setSelectedBannerIds] = useState<Set<string>>(
     new Set()
   );
+  const [readyBanners, setReadyBanners] = useState<Set<string>>(new Set());
   const [isClient, setIsClient] = useState(false);
   const { toast } = useToast();
 
@@ -42,6 +44,8 @@ export function BannerBoard() {
     const savedBanners = loadWorkspaceFromStorage();
     if (savedBanners) {
       setBanners(savedBanners);
+      // Assume all loaded banners are ready initially
+      setReadyBanners(new Set(savedBanners.map(b => b.id)));
     }
     setPresets(loadPresetsFromStorage());
   }, []);
@@ -58,16 +62,32 @@ export function BannerBoard() {
     }
   }, [presets, isClient]);
 
+  const handleSetBannerAsReady = useCallback((bannerId: string) => {
+    setReadyBanners(prev => {
+      const newSet = new Set(prev);
+      newSet.add(bannerId);
+      return newSet;
+    });
+  }, []);
+
   const handleAddBanners = useCallback(
-    (newBanners: Omit<Banner, "id">[]) => {
-      const bannersToAdd = newBanners.map((b) => ({ ...b, id: uuidv4() }));
+    (newBanners: Omit<Banner, "id" | "isReady">[]) => {
+      const bannersToAdd = newBanners.map((b) => ({ ...b, id: b.id || uuidv4() }));
       setBanners((prev) => [...prev, ...bannersToAdd]);
+      
+      // We don't mark them as ready yet; the banner card will do that
+      bannersToAdd.forEach(b => {
+        if (!b.url.startsWith('/api/preview')) {
+            handleSetBannerAsReady(b.id);
+        }
+      });
+
       toast({
         title: "Banners Added",
         description: `${bannersToAdd.length} new banners have been added to the workspace.`,
       });
     },
-    [toast]
+    [toast, handleSetBannerAsReady]
   );
 
   const handleUpdateBanner = useCallback((updatedBanner: Banner) => {
@@ -83,11 +103,17 @@ export function BannerBoard() {
       newSet.delete(bannerId);
       return newSet;
     });
+    setReadyBanners(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(bannerId);
+      return newSet;
+    });
   }, []);
 
   const handleClearBanners = useCallback(() => {
     setBanners([]);
     setSelectedBannerIds(new Set());
+    setReadyBanners(new Set());
     toast({
       title: "Workspace Cleared",
       description: "All banners have been removed.",
@@ -135,6 +161,7 @@ export function BannerBoard() {
     const preset = presets.find((p) => p.id === presetId);
     if (preset) {
       setBanners(preset.banners);
+      setReadyBanners(new Set(preset.banners.map(b => b.id))); // Assume ready on load
       toast({
         title: "Preset Loaded",
         description: `Preset "${preset.name}" has been loaded.`,
@@ -187,11 +214,13 @@ export function BannerBoard() {
           <BannerGrid
             banners={banners}
             selectedBannerIds={selectedBannerIds}
+            readyBanners={readyBanners}
             onToggleSelection={handleToggleSelection}
             onRemoveBanner={handleRemoveBanner}
             onUpdateBanner={handleUpdateBanner}
             onSelectAll={handleSelectAll}
             onDeselectAll={handleDeselectAll}
+            onSetBannerAsReady={handleSetBannerAsReady}
           />
         </DndContext>
       </SidebarInset>

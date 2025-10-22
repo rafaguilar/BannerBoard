@@ -40,6 +40,7 @@ interface BannerCardProps {
   onToggleSelection: (id: string) => void;
   onRemove: (id: string) => void;
   onUpdate: (banner: Banner) => void;
+  onSetBannerAsReady: (id: string) => void;
 }
 
 export function BannerCard({
@@ -47,6 +48,7 @@ export function BannerCard({
   isSelected,
   onToggleSelection,
   onRemove,
+  onSetBannerAsReady,
 }: BannerCardProps) {
   const { toast } = useToast();
   const isDataUrl = banner.url.startsWith('data:');
@@ -125,7 +127,6 @@ export function BannerCard({
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // Basic security and relevance check
       if (!event.data || !event.data.action || event.data.bannerId !== banner.id) {
         return;
       }
@@ -133,6 +134,9 @@ export function BannerCard({
       const { action, dataUrl, error, isPlaying: newIsPlaying } = event.data;
 
       switch (action) {
+        case 'bannerReady':
+          onSetBannerAsReady(banner.id);
+          break;
         case 'screenshotCaptured':
           fetch(dataUrl)
             .then(res => res.blob())
@@ -169,7 +173,7 @@ export function BannerCard({
     return () => {
       window.removeEventListener('message', handleMessage);
     };
-  }, [banner.id, banner.width, banner.height, toast]);
+  }, [banner.id, banner.width, banner.height, toast, onSetBannerAsReady]);
   
   const handleReload = () => {
     setIsError(false);

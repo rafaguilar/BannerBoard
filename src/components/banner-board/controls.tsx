@@ -124,6 +124,7 @@ function BannerInputPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         }
 
         return {
+          id: uuidv4(),
           url,
           width: Number(width),
           height: Number(height),
@@ -229,6 +230,7 @@ function LocalUploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
             const img = new Image();
             img.onload = () => {
               resolve({
+                id: uuidv4(),
                 url: dataUrl,
                 width: img.width,
                 height: img.height,
@@ -404,9 +406,10 @@ function HTML5UploadPanel({ banners, onAddBanners }: { banners: Banner[], onAddB
                     throw new Error(errorData.error || 'Upload failed');
                 }
 
-                const { url, width, height } = await response.json();
+                const { url, width, height, id } = await response.json();
 
                 newBanners.push({
+                    id,
                     url,
                     width,
                     height,

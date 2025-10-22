@@ -238,6 +238,7 @@ export async function POST(req: NextRequest) {
         url: previewUrl,
         width: dimensions.width,
         height: dimensions.height,
+        id: bannerId
     });
 
   } catch (error) {

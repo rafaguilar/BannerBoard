@@ -1,3 +1,4 @@
+
 "use client";
 
 import React from "react";
@@ -13,21 +14,25 @@ import { GlobalControls } from "./global-controls";
 interface BannerGridProps {
   banners: Banner[];
   selectedBannerIds: Set<string>;
+  readyBanners: Set<string>;
   onToggleSelection: (id: string) => void;
   onRemoveBanner: (id:string) => void;
   onUpdateBanner: (banner: Banner) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
+  onSetBannerAsReady: (id: string) => void;
 }
 
 export function BannerGrid({
   banners,
   selectedBannerIds,
+  readyBanners,
   onToggleSelection,
   onRemoveBanner,
   onUpdateBanner,
   onSelectAll,
-  onDeselectAll
+  onDeselectAll,
+  onSetBannerAsReady,
 }: BannerGridProps) {
   if (banners.length === 0) {
     return (
@@ -50,7 +55,7 @@ export function BannerGrid({
             <Button size="sm" variant="outline" onClick={onSelectAll}>Select All</Button>
             <Button size="sm" variant="outline" onClick={onDeselectAll} disabled={selectedBannerIds.size === 0}>Deselect All</Button>
           </div>
-          <GlobalControls banners={banners} />
+          <GlobalControls banners={banners} readyBanners={readyBanners} />
         </div>
       <SortableContext items={banners.map((b) => b.id)} strategy={rectSortingStrategy}>
         <div className="flex flex-wrap items-start gap-4">
@@ -62,6 +67,7 @@ export function BannerGrid({
               onToggleSelection={onToggleSelection}
               onRemove={onRemoveBanner}
               onUpdate={onUpdateBanner}
+              onSetBannerAsReady={onSetBannerAsReady}
             />
           ))}
         </div>
