@@ -92,6 +92,8 @@ const INJECTED_SCRIPT = `
               
               if (masterTimeline) {
                   clearInterval(timelinePollInterval);
+                  // Pause the animation as soon as it's ready
+                  masterTimeline.pause();
                   window.parent.postMessage({ action: 'bannerReady', bannerId: '%%BANNER_ID%%' }, '*');
                   if(lastReceivedAction) {
                     handleAction(lastReceivedAction.action, lastReceivedAction.bannerId, lastReceivedAction.groupId);

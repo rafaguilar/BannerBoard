@@ -56,7 +56,7 @@ export function BannerCard({
   
   const [isLoading, setIsLoading] = React.useState(true);
   const [isError, setIsError] = React.useState(false);
-  const [isPlaying, setIsPlaying] = React.useState(true);
+  const [isPlaying, setIsPlaying] = React.useState(false); // Start in paused state
   const iframeRef = React.useRef<HTMLIFrameElement>(null);
   const [iframeKey, setIframeKey] = React.useState(banner.id);
 
@@ -136,6 +136,7 @@ export function BannerCard({
       switch (action) {
         case 'bannerReady':
           onSetBannerAsReady(banner.id);
+          setIsPlaying(false); // Ensure it's marked as paused visually
           break;
         case 'screenshotCaptured':
           fetch(dataUrl)
@@ -178,7 +179,7 @@ export function BannerCard({
   const handleReload = () => {
     setIsError(false);
     setIsLoading(true);
-    setIsPlaying(true);
+    setIsPlaying(false);
     setIframeKey(oldKey => oldKey + '-reload');
   };
 
