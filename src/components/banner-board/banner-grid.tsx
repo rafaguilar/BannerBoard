@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { BannerCard } from "./banner-card";
 import type { Banner } from "@/lib/types";
+import { GlobalControls } from "./global-controls";
 
 interface BannerGridProps {
   banners: Banner[];
@@ -41,12 +42,15 @@ export function BannerGrid({
 
   return (
     <div className="flex-1 overflow-auto p-4">
-       <div className="mb-4 flex items-center gap-4">
-          <p className="text-sm text-muted-foreground">
-            {selectedBannerIds.size} of {banners.length} selected
-          </p>
-          <Button size="sm" variant="outline" onClick={onSelectAll}>Select All</Button>
-          <Button size="sm" variant="outline" onClick={onDeselectAll} disabled={selectedBannerIds.size === 0}>Deselect All</Button>
+       <div className="mb-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <p className="text-sm text-muted-foreground">
+              {selectedBannerIds.size} of {banners.length} selected
+            </p>
+            <Button size="sm" variant="outline" onClick={onSelectAll}>Select All</Button>
+            <Button size="sm" variant="outline" onClick={onDeselectAll} disabled={selectedBannerIds.size === 0}>Deselect All</Button>
+          </div>
+          <GlobalControls banners={banners} />
         </div>
       <SortableContext items={banners.map((b) => b.id)} strategy={rectSortingStrategy}>
         <div className="flex flex-wrap items-start gap-4">

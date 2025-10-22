@@ -6,6 +6,7 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import html2canvas from "html2canvas";
+import { v4 as uuidv4 } from "uuid";
 import {
   Tabs,
   TabsContent,
@@ -363,9 +364,12 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         if (!files || files.length === 0) return;
 
         const { round, version } = form.getValues();
+        const groupId = uuidv4(); // Create a single group ID for this batch
         let filesProcessed = 0;
         
         setIsUploading(true);
+
+        const newBanners: Omit<Banner, "id">[] = [];
 
         const uploadPromises = Array.from(files).map(async file => {
             if (file.type !== "application/zip" && !file.name.endsWith('.zip')) {
@@ -375,6 +379,7 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
             const formData = new FormData();
             formData.append('file', file);
+            formData.append('groupId', groupId);
 
             try {
                 const response = await fetch('/api/preview/upload', {
@@ -389,13 +394,14 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
 
                 const { url, width, height } = await response.json();
 
-                onAddBanners([{
+                newBanners.push({
                     url,
                     width,
                     height,
                     round,
                     version,
-                }]);
+                    groupId,
+                });
                 filesProcessed++;
 
             } catch (error) {
@@ -407,6 +413,10 @@ function HTML5UploadPanel({ onAddBanners }: { onAddBanners: (banners: Omit<Banne
         await Promise.all(uploadPromises);
 
         setIsUploading(false);
+        
+        if (newBanners.length > 0) {
+            onAddBanners(newBanners);
+        }
 
         if (filesProcessed > 0) {
              toast({ title: "HTML5 Banners Added", description: `${filesProcessed} banner(s) are being prepared.` });
@@ -791,5 +801,3 @@ export function MainControls(props: MainControlsProps) {
     </Tabs>
   );
 }
-
-    

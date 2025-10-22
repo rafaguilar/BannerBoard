@@ -76,80 +76,103 @@ const INJECTED_SCRIPT = `
         script.onload = function() {
           var masterTimeline;
 
+          function getMasterTimeline() {
+              if (masterTimeline) return masterTimeline;
+              var gsap = window.gsap || window.TweenLite || window.TweenMax;
+              var timeline = window.TimelineLite || window.TimelineMax;
+              if (timeline && typeof timeline.exportRoot === 'function') {
+                  masterTimeline = timeline.exportRoot();
+              } else if (gsap && gsap.globalTimeline) {
+                  masterTimeline = gsap.globalTimeline;
+              }
+              return masterTimeline;
+          }
+
           window.addEventListener('message', function(event) {
               if (!event.data || !event.data.action) return;
               const bannerId = event.data.bannerId;
               const action = event.data.action;
 
-              if (action === 'captureScreenshot' || action === 'captureScreenshotForAI') {
-                  html2canvas(document.body, {
-                      allowTaint: true,
-                      useCORS: true,
-                      logging: false,
-                      width: event.data.width,
-                      height: event.data.height,
-                      windowWidth: event.data.width,
-                      windowHeight: event.data.height,
-                  }).then(function(canvas) {
-                      const dataUrl = canvas.toDataURL('image/png');
-                      const responseAction = action === 'captureScreenshot' ? 'screenshotCaptured' : 'screenshotCapturedForAI';
-                      window.parent.postMessage({
-                          action: responseAction,
-                          dataUrl: dataUrl,
-                          bannerId: bannerId
-                      }, '*');
-                  }).catch(function(error) {
-                      console.error('html2canvas error:', error);
-                      window.parent.postMessage({
-                          action: 'screenshotFailed',
-                          error: 'html2canvas failed to execute.',
-                          bannerId: bannerId
-                      }, '*');
-                  });
-              } else if (action === 'play') {
-                  let played = false;
-                  if (masterTimeline) {
-                    masterTimeline.resume();
-                    played = true;
-                  } else if (typeof window.play === 'function') {
-                    window.play();
-                    played = true;
-                  } else if (window.timeline && typeof window.timeline.play === 'function') {
-                    window.timeline.play();
-                    played = true;
-                  }
-                  
-                  if(played) {
-                    window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: true }, '*');
-                  } else {
-                    window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard play/resume method found.' }, '*');
-                  }
+              // Individual controls
+              if (bannerId === '%%BANNER_ID%%') {
+                  if (action === 'captureScreenshot' || action === 'captureScreenshotForAI') {
+                      html2canvas(document.body, {
+                          allowTaint: true,
+                          useCORS: true,
+                          logging: false,
+                          width: event.data.width,
+                          height: event.data.height,
+                          windowWidth: event.data.width,
+                          windowHeight: event.data.height,
+                      }).then(function(canvas) {
+                          const dataUrl = canvas.toDataURL('image/png');
+                          const responseAction = action === 'captureScreenshot' ? 'screenshotCaptured' : 'screenshotCapturedForAI';
+                          window.parent.postMessage({
+                              action: responseAction,
+                              dataUrl: dataUrl,
+                              bannerId: bannerId
+                          }, '*');
+                      }).catch(function(error) {
+                          console.error('html2canvas error:', error);
+                          window.parent.postMessage({
+                              action: 'screenshotFailed',
+                              error: 'html2canvas failed to execute.',
+                              bannerId: bannerId
+                          }, '*');
+                      });
+                  } else if (action === 'play') {
+                      let played = false;
+                      const mt = getMasterTimeline();
+                      if (mt) {
+                        mt.resume();
+                        played = true;
+                      } else if (typeof window.play === 'function') {
+                        window.play();
+                        played = true;
+                      } else if (window.timeline && typeof window.timeline.play === 'function') {
+                        window.timeline.play();
+                        played = true;
+                      }
+                      
+                      if(played) {
+                        window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: true }, '*');
+                      } else {
+                        window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard play/resume method found.' }, '*');
+                      }
 
-              } else if (action === 'pause') {
-                  var gsap = window.gsap || window.TweenLite || window.TweenMax;
-                  var timeline = window.TimelineLite || window.TimelineMax;
-                  let paused = false;
+                  } else if (action === 'pause') {
+                      let paused = false;
+                      const mt = getMasterTimeline();
+                      if (mt) {
+                        mt.pause();
+                        paused = true;
+                      } else if (typeof window.pause === 'function') {
+                        window.pause();
+                        paused = true;
+                      } else if (window.timeline && typeof window.timeline.pause === 'function') {
+                        window.timeline.pause();
+                        paused = true;
+                      }
 
-                  if (timeline && typeof timeline.exportRoot === 'function') {
-                    masterTimeline = timeline.exportRoot();
-                    masterTimeline.pause();
-                    paused = true;
-                  } else if (gsap && gsap.globalTimeline) {
-                    masterTimeline = gsap.globalTimeline;
-                    masterTimeline.pause();
-                    paused = true;
-                  } else if (typeof window.pause === 'function') {
-                    window.pause();
-                    paused = true;
-                  } else if (window.timeline && typeof window.timeline.pause === 'function') {
-                    window.timeline.pause();
-                    paused = true;
+                       if(paused) {
+                        window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: false }, '*');
+                      } else {
+                        window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard pause method found.' }, '*');
+                      }
                   }
+              }
 
-                   if(paused) {
-                    window.parent.postMessage({ action: 'playPauseSuccess', bannerId: bannerId, isPlaying: false }, '*');
-                  } else {
-                    window.parent.postMessage({ action: 'playPauseFailed', bannerId: bannerId, error: 'No standard pause/exportRoot method found.' }, '*');
+              // Global controls for groups
+              if (event.data.groupId && event.data.groupId === '%%GROUP_ID%%') {
+                  const mt = getMasterTimeline();
+                  if (!mt) return;
+
+                  if(action === 'global-play') {
+                      mt.play();
+                  } else if (action === 'global-pause') {
+                      mt.pause();
+                  } else if (action === 'global-restart') {
+                      mt.restart(true);
                   }
               }
           });
@@ -164,10 +187,10 @@ const INJECTED_SCRIPT = `
     <\/script>
 `;
 
-async function injectScreenshotScript(htmlPath: string, bannerId: string): Promise<void> {
+async function injectScreenshotScript(htmlPath: string, bannerId: string, groupId: string): Promise<void> {
     try {
         let htmlContent = await fs.readFile(htmlPath, 'utf-8');
-        const finalScript = INJECTED_SCRIPT.replace('%%BANNER_ID%%', bannerId);
+        const finalScript = INJECTED_SCRIPT.replace(/%%BANNER_ID%%/g, bannerId).replace(/%%GROUP_ID%%/g, groupId);
         htmlContent = htmlContent.replace('</head>', `${finalScript}</head>`);
         await fs.writeFile(htmlPath, htmlContent, 'utf-8');
     } catch (error) {
@@ -179,9 +202,10 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
+    const groupId = formData.get('groupId') as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+    if (!file || !groupId) {
+      return NextResponse.json({ error: 'Missing file or group ID' }, { status: 400 });
     }
 
     const bannerId = uuidv4();
@@ -206,7 +230,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Could not determine banner dimensions. Ensure a <meta name="ad.size"> tag or a valid canvas for Adobe Animate ads is present.' }, { status: 400 });
     }
 
-    await injectScreenshotScript(fullHtmlPath, bannerId);
+    await injectScreenshotScript(fullHtmlPath, bannerId, groupId);
 
     const previewUrl = `/api/preview/${bannerId}/${htmlFile}`;
 
