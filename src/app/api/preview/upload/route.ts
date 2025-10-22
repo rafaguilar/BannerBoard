@@ -82,15 +82,18 @@ const INJECTED_SCRIPT = `
               var gsap = window.gsap || window.TweenLite || window.TweenMax;
               var timeline = window.TimelineLite || window.TimelineMax;
 
-              if (masterTimeline) return masterTimeline;
+              // Do not cache the timeline instance; find it fresh each time.
+              var mt = null;
 
               if (timeline && typeof timeline.exportRoot === 'function') {
-                  masterTimeline = timeline.exportRoot();
+                  mt = timeline.exportRoot();
               } else if (gsap && gsap.globalTimeline) {
-                  masterTimeline = gsap.globalTimeline;
+                  mt = gsap.globalTimeline;
               }
               
-              if (masterTimeline) {
+              if (mt && !masterTimeline) {
+                  // This block runs only once to fire the ready signal.
+                  masterTimeline = mt;
                   clearInterval(timelinePollInterval);
                   // Pause the animation as soon as it's ready
                   masterTimeline.pause();
@@ -100,10 +103,11 @@ const INJECTED_SCRIPT = `
                     lastReceivedAction = null; // Clear after processing
                   }
               }
-              return masterTimeline;
+              return mt;
           }
 
           function handleAction(action, bannerId, groupId) {
+              // Always get a fresh reference to the timeline.
               const mt = findMasterTimeline();
 
               // If timeline not ready yet, queue the action.
