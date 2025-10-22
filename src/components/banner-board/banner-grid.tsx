@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { BannerCard } from "./banner-card";
 import type { Banner } from "@/lib/types";
 import { GlobalControls } from "./global-controls";
+import { Trash2 } from "lucide-react";
 
 interface BannerGridProps {
   banners: Banner[];
@@ -21,6 +22,7 @@ interface BannerGridProps {
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onSetBannerAsReady: (id: string) => void;
+  onRemoveSelectedBanners: () => void;
 }
 
 export function BannerGrid({
@@ -33,6 +35,7 @@ export function BannerGrid({
   onSelectAll,
   onDeselectAll,
   onSetBannerAsReady,
+  onRemoveSelectedBanners
 }: BannerGridProps) {
   if (banners.length === 0) {
     return (
@@ -45,15 +48,22 @@ export function BannerGrid({
     );
   }
 
+  const hasSelection = selectedBannerIds.size > 0;
+
   return (
     <div className="flex-1 overflow-auto p-4">
        <div className="mb-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
             <p className="text-sm text-muted-foreground">
               {selectedBannerIds.size} of {banners.length} selected
             </p>
             <Button size="sm" variant="outline" onClick={onSelectAll}>Select All</Button>
-            <Button size="sm" variant="outline" onClick={onDeselectAll} disabled={selectedBannerIds.size === 0}>Deselect All</Button>
+            <Button size="sm" variant="outline" onClick={onDeselectAll} disabled={!hasSelection}>Deselect All</Button>
+            {hasSelection && (
+              <Button size="sm" variant="destructive" onClick={onRemoveSelectedBanners}>
+                <Trash2 className="mr-2 h-4 w-4" /> Remove Selected
+              </Button>
+            )}
           </div>
           <GlobalControls banners={banners} readyBanners={readyBanners} />
         </div>
