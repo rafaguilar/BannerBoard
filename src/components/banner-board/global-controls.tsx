@@ -54,8 +54,8 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
   const groupBanners = banners.filter(b => b.groupId === largestGroupId);
   const allInGroupReady = groupBanners.every(b => readyBanners.has(b.id));
 
-  const handleGlobalAction = (action: 'global-play' | 'global-pause') => {
-    if (!allInGroupReady) return;
+  const handleGlobalAction = (action: 'global-play' | 'global-pause' | 'global-restart') => {
+    if (!allInGroupReady && action !== 'global-restart') return;
     
     // Post message to all iframes. The injected script will filter by groupId.
     const iframes = document.querySelectorAll('iframe');
@@ -68,12 +68,6 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
       }
     });
   };
-
-  const handleGlobalRestart = () => {
-    if (largestGroupId) {
-        onReloadGroup(largestGroupId);
-    }
-  }
 
   const firstBanner = groupBanners[0];
 
@@ -105,7 +99,7 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleGlobalRestart}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleGlobalAction('global-restart')}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
