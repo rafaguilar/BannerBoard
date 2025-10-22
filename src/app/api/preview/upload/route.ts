@@ -154,7 +154,7 @@ const INJECTED_SCRIPT = `
                   } else if (action === 'global-pause') {
                       mt.pause();
                   } else if (action === 'global-restart') {
-                      mt.restart(true);
+                      mt.seek(0).play();
                   }
               }
           }
