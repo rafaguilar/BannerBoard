@@ -96,7 +96,7 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
     <TooltipProvider>
       <div className={cn(
         "flex items-center gap-2 rounded-lg border bg-card px-3 py-2 transition-opacity",
-        !allInGroupgReady && "opacity-50"
+        !allInGroupReady && "opacity-50"
       )}>
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           {!allInGroupReady && <Loader className="h-4 w-4 animate-spin" />}
