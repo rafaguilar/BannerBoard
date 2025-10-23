@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Play, Pause, RefreshCw, Loader, Zap } from 'lucide-react';
 import type { Banner } from '@/lib/types';
@@ -46,6 +46,7 @@ function findLargestGroupId(banners: Banner[]): string | null {
 
 export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalControlsProps) {
   const largestGroupId = useMemo(() => findLargestGroupId(banners), [banners]);
+  const [isGroupPlaying, setIsGroupPlaying] = useState(false);
 
   if (!largestGroupId) {
     return null; // Don't render controls if no groups are present
@@ -69,9 +70,22 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
     });
   };
 
+  const handleToggleGlobalPlayPause = () => {
+    const newIsPlaying = !isGroupPlaying;
+    const action = newIsPlaying ? 'global-play' : 'global-pause';
+    handleGlobalAction(action);
+    setIsGroupPlaying(newIsPlaying);
+  };
+  
+  const handleSoftReload = () => {
+    handleGlobalAction('global-restart');
+    setIsGroupPlaying(true);
+  }
+
   const handleHardReload = () => {
     if (largestGroupId) {
       onReloadGroup(largestGroupId);
+      setIsGroupPlaying(false); // It will be paused on reload
     }
   };
 
@@ -82,7 +96,7 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
     <TooltipProvider>
       <div className={cn(
         "flex items-center gap-2 rounded-lg border bg-card px-3 py-2 transition-opacity",
-        !allInGroupReady && "opacity-50"
+        !allInGroupgReady && "opacity-50"
       )}>
         <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
           {!allInGroupReady && <Loader className="h-4 w-4 animate-spin" />}
@@ -90,23 +104,15 @@ export function GlobalControls({ banners, readyBanners, onReloadGroup }: GlobalC
         </div>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleGlobalAction('global-play')} disabled={!allInGroupReady}>
-              <Play className="h-4 w-4" />
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleToggleGlobalPlayPause} disabled={!allInGroupReady}>
+               {isGroupPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Play All</TooltipContent>
+          <TooltipContent>{isGroupPlaying ? 'Pause All' : 'Play All'}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleGlobalAction('global-pause')} disabled={!allInGroupReady}>
-              <Pause className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Pause All</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleGlobalAction('global-restart')}>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleSoftReload}>
               <RefreshCw className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
