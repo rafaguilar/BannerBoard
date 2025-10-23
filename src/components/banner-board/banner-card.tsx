@@ -142,6 +142,9 @@ export function BannerCard({
           onSetBannerAsReady(banner.id);
           setIsPlaying(false); // Ensure it's marked as paused visually
           break;
+        case 'animationComplete':
+          console.log(`Animation completed for banner: ${banner.id}`);
+          break;
         case 'screenshotCaptured':
           fetch(dataUrl)
             .then(res => res.blob())

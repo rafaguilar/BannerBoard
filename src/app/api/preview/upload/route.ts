@@ -75,48 +75,52 @@ const INJECTED_SCRIPT = `
         script.referrerPolicy = "no-referrer";
         script.onload = function() {
           var masterTimeline;
+          var onCompleteAttached = false;
           var lastReceivedAction = null;
           var timelinePollInterval;
+
+          function onAnimationComplete() {
+            console.log('Banner %%BANNER_ID%% animation completed.');
+            window.parent.postMessage({ action: 'animationComplete', bannerId: '%%BANNER_ID%%' }, '*');
+          }
 
           function findMasterTimeline() {
               var gsap = window.gsap || window.TweenLite || window.TweenMax;
               var timeline = window.TimelineLite || window.TimelineMax;
               var mt = null;
 
-              if (timeline && typeof timeline.exportRoot === 'function') {
-                  mt = timeline.exportRoot();
-              } else if (gsap && gsap.globalTimeline) {
+              if (gsap && gsap.globalTimeline) {
                   mt = gsap.globalTimeline;
+              } else if (timeline && typeof timeline.exportRoot === 'function') {
+                  mt = timeline.exportRoot();
               }
               
               if (mt && !masterTimeline) {
                   masterTimeline = mt;
-                  clearInterval(timelinePollInterval);
-                  // Pause the animation as soon as it's ready
-                  masterTimeline.pause();
                   window.parent.postMessage({ action: 'bannerReady', bannerId: '%%BANNER_ID%%' }, '*');
+                  if (!onCompleteAttached) {
+                      masterTimeline.add(onAnimationComplete);
+                      onCompleteAttached = true;
+                  }
                   if(lastReceivedAction) {
                     handleAction(lastReceivedAction.action, lastReceivedAction.bannerId, lastReceivedAction.groupId);
-                    lastReceivedAction = null; // Clear after processing
+                    lastReceivedAction = null; 
                   }
               }
-              return mt; // Always return the freshly found timeline
+              return mt; 
           }
 
           function handleAction(action, bannerId, groupId) {
-              // Always get a fresh reference to the timeline for every action.
               const mt = findMasterTimeline();
 
-              // If timeline not ready yet, queue the action.
               if (!mt) {
                   lastReceivedAction = { action, bannerId, groupId };
                   return;
               }
 
-              // Individual controls
               if (bannerId === '%%BANNER_ID%%') {
                   if (action === 'captureScreenshot' || action === 'captureScreenshotForAI') {
-                       const eventData = window.event.data; // Need to get the data from the triggering event
+                       const eventData = window.event.data;
                       html2canvas(document.body, {
                           allowTaint: true,
                           useCORS: true,
@@ -150,7 +154,6 @@ const INJECTED_SCRIPT = `
                   }
               }
 
-              // Global controls for groups
               if (groupId && groupId === '%%GROUP_ID%%') {
                   if(action === 'global-play') {
                       mt.play();
@@ -168,7 +171,6 @@ const INJECTED_SCRIPT = `
           });
           
            window.addEventListener('load', function() {
-                // Start polling for the master timeline
                 timelinePollInterval = setInterval(findMasterTimeline, 100);
             }, false);
 
